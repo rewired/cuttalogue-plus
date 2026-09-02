@@ -556,6 +556,27 @@ Right-click a shot to delete it">&#9432;</span></div>
   </div>
 </div>
 
+<div id="mcp-live-modal" class="modal-overlay mcp-live-overlay" hidden>
+  <div class="modal mcp-live-modal" role="dialog" aria-modal="true" aria-labelledby="mcp-live-title" aria-describedby="mcp-live-message">
+    <div class="modal-header mcp-live-header">
+      <div class="mcp-live-heading">
+        <span class="spinner" aria-hidden="true"></span>
+        <div>
+          <span id="mcp-live-scope" class="mcp-live-scope">Project</span>
+          <h2 id="mcp-live-title">CUTTAlogue is being updated</h2>
+        </div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <p id="mcp-live-message" class="mcp-live-message">Applying MCP changes…</p>
+      <div id="mcp-live-progress" class="export-progress-bar" hidden>
+        <div id="mcp-live-progress-fill" class="export-progress-fill"></div>
+      </div>
+      <p class="placeholder-hint">Saved changes appear immediately in the open project.</p>
+    </div>
+  </div>
+</div>
+
 <div id="task-panel" class="task-panel" hidden>
   <div class="task-panel-header">
     <strong id="task-panel-title">Exporting project</strong>
@@ -609,6 +630,7 @@ Right-click a shot to delete it">&#9432;</span></div>
 <script src="js/cameraService.js"></script>
 <script src="js/cameraPreview.js"></script>
 <script src="js/lyricsAlign.js"></script>
+<script src="js/mcpLive.js"></script>
 <script src="js/taskPanel.js"></script>
 <script src="js/main.js"></script>
 </body>
