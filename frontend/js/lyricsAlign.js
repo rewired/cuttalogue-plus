@@ -112,7 +112,7 @@
   }
 
   // Free text mutated directly on state, same convention as shot prompt/
-  // notes (contextPanel.js) - draft autosave's poll-and-diff picks this up
+  // notes (contextPanel.js) - canonical autosave's poll-and-diff picks this up
   // without needing its own change event.
   function wireTextarea() {
     el.textarea.addEventListener('input', () => {

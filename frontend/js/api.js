@@ -13,10 +13,17 @@
     return res.json(); // { id, project }
   }
 
-  async function getProject(id) {
+  async function getProjectRecord(id) {
     const res = await fetch(`/api/projects/${id}`);
     if (!res.ok) throw new Error(`get project failed: ${res.status}`);
-    return res.json();
+    const project = await res.json();
+    const revision = res.headers.get('X-Project-Revision');
+    if (!revision) throw new Error('get project failed: missing project revision');
+    return { project, revision };
+  }
+
+  async function getProject(id) {
+    return (await getProjectRecord(id)).project;
   }
 
   async function getProjectLive(id) {
@@ -25,11 +32,11 @@
     return res.json(); // { projectId, revision, activity }
   }
 
-  async function acknowledgeProjectLive(id, revision) {
+  async function acknowledgeProjectLive(id, revision, ready = true) {
     const res = await fetch(`/api/projects/${id}/live/ack`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revision }),
+      body: JSON.stringify({ revision, ready }),
     });
     if (!res.ok) throw new Error(`acknowledge project live state failed: ${res.status}`);
     return res.json();
@@ -64,16 +71,6 @@
     return res.json(); // { basedOnSavedAt, draftUpdatedAt, data } | null
   }
 
-  async function putDraft(id, draft) {
-    const res = await fetch(`/api/projects/${id}/draft`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
-    });
-    if (!res.ok) throw new Error(`draft save failed: ${res.status}`);
-    return res.json();
-  }
-
   async function deleteDraft(id) {
     const res = await fetch(`/api/projects/${id}/draft`, { method: 'DELETE' });
     if (!res.ok) throw new Error(`draft delete failed: ${res.status}`);
@@ -88,6 +85,22 @@
     });
     if (!res.ok) throw new Error(`save project failed: ${res.status}`);
     return res.json(); // { jobId }
+  }
+
+  async function autosaveProject(id, project, expectedRevision) {
+    const res = await fetch(`/api/projects/${id}/autosave`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, expectedRevision }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = new Error(body.detail || `autosave project failed: ${res.status}`);
+      error.status = res.status;
+      error.currentRevision = body.currentRevision || null;
+      throw error;
+    }
+    return body;
   }
 
   async function uploadAudioTrack(id, track, file) {
@@ -265,14 +278,15 @@
   MSE.api = {
     createProject,
     getProject,
+    getProjectRecord,
     getProjectLive,
     acknowledgeProjectLive,
     listProjects,
     putProject,
+    autosaveProject,
     uploadAssets,
     replaceAsset,
     getDraft,
-    putDraft,
     deleteDraft,
     uploadAudioTrack,
     exportProject,

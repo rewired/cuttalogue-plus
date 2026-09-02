@@ -20,4 +20,4 @@ Existing CUTTAlogue projects load with safe defaults and are not rewritten merel
 
 ## Upgrade notes
 
-Work from a copy of important project directories until release acceptance is complete. Review [release readiness](release-readiness.md), [MCP operation](mcp.md), and the [integration roadmap](cuttalogue-plus-roadmap.md) before merging the integration branch into `master`.
+Work from a copy of important project directories until release acceptance is complete. Review [release readiness](release-readiness.md), [MCP operation](mcp.md), and the [integration roadmap](cuttalogue-plus-roadmap.md) before merging a release-scoped feature branch into `main`.

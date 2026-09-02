@@ -1,8 +1,8 @@
 # CUTTAlogue Plus Release Readiness
 
 Status: integration hardening in progress  
-Release branch: `integration/shot-visualizer`  
-Protected baseline: `master`
+Delivery model: tested feature branches into `main`
+Protected baseline: `main`
 
 ## Automated release gate
 
@@ -16,7 +16,7 @@ The fast gate runs every deterministic backend test except `test_alignment_smoke
 
 ## Manual acceptance gate
 
-Before merging to `master`:
+Before merging to `main`:
 
 1. Load a pre-Plus CUTTAlogue project and confirm it opens without an implicit save.
 2. Import a PLY or SPLAT scene and an optional GLB blockout, assign the scene to two shots, and verify reuse.
@@ -30,9 +30,9 @@ Before merging to `master`:
 ## Recovery and migration
 
 - Back up a project by copying its complete project directory while CUTTAlogue is stopped. Assets, audio, scenes, takes, exports, and `project.json` are project-relative.
-- `project.draft.json` is recoverable browser autosave state. A successful canonical save removes it. Do not replace `project.json` with a draft blindly; open the app and review the recovery diff.
+- `project.draft.json` is legacy recovery input from pre-canonical-autosave releases. Open the app to review it; restoring it immediately queues a revision-guarded canonical autosave, and success removes the draft.
 - Repository writes use a project-local `.project.lock`, same-directory temporary files, `fsync`, and atomic replacement. A stale `.project-*.tmp` file is never authoritative and may be removed only while the app is stopped and after `project.json` has been backed up.
-- Old projects receive safe in-memory defaults for `scenes`, `sceneId`, `preview`, Camera optics, Lighting, Character fields, lyrics alignment, and subtitle offset. Loading does not rewrite the file; migration becomes durable only on an explicit save.
+- Old projects receive safe in-memory defaults for `scenes`, `sceneId`, `preview`, Camera optics, Lighting, Character fields, lyrics alignment, and subtitle offset. Loading alone does not rewrite the file; the next edit makes normalized migration durable through canonical autosave.
 - MCP writes require the SHA-256 revision returned by a fresh read. On `revision_conflict`, discard the stale mutation, read again, and reapply intent through a narrow tool.
 
 ## Security and operational boundaries
@@ -67,4 +67,4 @@ generation must confirm prompt, vocal, frame count, and image-reference order.
 
 ## Master merge gate
 
-Merge `integration/shot-visualizer` to `master` only when the fast suite, relevant real-model smoke, manual acceptance, and large-scene profiling are recorded as passing and the working tree is clean. Tag the resulting merge commit as the first CUTTAlogue Plus release candidate.
+Merge release-scoped feature branches into `main` only when the fast suite, relevant real-model smoke, manual acceptance, and large-scene profiling are recorded as passing and the working tree is clean. Tag the resulting merge commit as the next CUTTAlogue Plus release candidate.

@@ -408,6 +408,7 @@
       el.generateStatusText.textContent = 'Starting…';
 
       try {
+        await MSE.project.saveProjectToBackend();
         const { jobId } = await MSE.api.generateTake(projectId, shot.id, {
           prompt: shot.prompt || '',
           seed: shot.seed ?? null,
