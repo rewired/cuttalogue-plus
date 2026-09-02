@@ -34,7 +34,7 @@
         gridDivision: 'bar', // 'off' | 'beat' | 'half-bar' | 'bar' | 'two-bar'
       },
       video: {
-        fpsNumerator: 25,
+        fpsNumerator: 24,
         fpsDenominator: 1,
         frameRule: { stride: 8, offset: 1 }, // stride: null (free) | 4 | 8
       },

@@ -39,6 +39,8 @@ async def main() -> None:
                 "direction": {"camera": [{"startSeconds": 0, "endSeconds": 5, "movement": "push_in"}]},
             }],
         }), encoding="utf-8")
+        source_asset = root / "source.png"
+        source_asset.write_bytes(b"not-a-real-png")
 
         generation_calls = []
 
@@ -60,6 +62,7 @@ async def main() -> None:
                 "get_job_status",
                 "create_shot", "update_shot_timing", "rename_shot",
                 "add_camera_segment", "update_camera_segment", "remove_camera_segment",
+                "add_subject_segment", "import_asset",
                 "assign_scene", "set_scene_anchor", "bind_camera_target",
                 "assign_asset", "add_constraint", "compile_and_save_prompt",
                 "cancel_job", "start_generation",
@@ -74,6 +77,11 @@ async def main() -> None:
             check(write_annotations["readOnlyHint"] is False and write_annotations["destructiveHint"] is False, "MCP metadata marks controlled writes as non-destructive mutations")
             check(delete_annotations["destructiveHint"] is True, "MCP metadata marks camera removal as destructive")
             check(tools_by_name["cancel_job"].annotations.model_dump(by_alias=True)["destructiveHint"] is True, "MCP metadata marks job cancellation as destructive")
+            import_annotations = tools_by_name["import_asset"].annotations.model_dump(by_alias=True)
+            check(
+                import_annotations["destructiveHint"] is False and import_annotations["openWorldHint"] is True,
+                "MCP metadata marks local-file import as non-destructive open-world access",
+            )
             start_annotations = tools_by_name["start_generation"].annotations.model_dump(by_alias=True)
             check(start_annotations["destructiveHint"] is True and start_annotations["openWorldHint"] is True, "MCP metadata marks generation as an external destructive action")
 
@@ -120,6 +128,15 @@ async def main() -> None:
                 live_ended.structured_content["active"] is False,
                 "MCP closes the frontend-visible live edit session",
             )
+            imported = await client.call_tool("import_asset", {
+                "project_id": "mcp-project", "expected_revision": original_revision,
+                "source_path": str(source_asset), "description": "Location reference",
+            })
+            check(
+                not imported.is_error and imported.structured_content["asset"]["fileName"] == "source.png",
+                "MCP imports an absolute local file into revisioned project assets",
+            )
+            original_revision = imported.structured_content["revision"]
             created = await client.call_tool("create_shot", {
                 "project_id": "mcp-project", "expected_revision": original_revision,
                 "start_seconds": 6, "end_seconds": 7, "name": "MCP shot",
@@ -188,9 +205,21 @@ async def main() -> None:
                 "asset_id": "lead", "role": "primary_character",
             })
             check(not asset_assigned.is_error and asset_assigned.structured_content["assetRoles"]["lead"] == "primary_character", "MCP assigns an existing asset with an allowed prompt role")
+            subject_added = await client.call_tool("add_subject_segment", {
+                "project_id": "mcp-project", "shot_id": 2, "asset_id": "lead",
+                "expected_revision": asset_assigned.structured_content["revision"],
+                "start_seconds": 0, "end_seconds": 1, "action_type": "sing",
+                "vocal_performance": "lip_sync", "gaze": "down into the cup",
+                "expression": "vacant and emotionally numb",
+            })
+            check(
+                not subject_added.is_error
+                and subject_added.structured_content["segment"]["vocalPerformance"] == "lip_sync",
+                "MCP adds structured lip-synced Character performance",
+            )
             constraint_added = await client.call_tool("add_constraint", {
                 "project_id": "mcp-project", "shot_id": 2,
-                "expected_revision": asset_assigned.structured_content["revision"],
+                "expected_revision": subject_added.structured_content["revision"],
                 "constraint": "No visible text",
             })
             prompt_saved = await client.call_tool("compile_and_save_prompt", {

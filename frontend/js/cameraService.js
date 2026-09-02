@@ -45,7 +45,7 @@
   function exportCamera(shot, projectState) {
     const plan = compileShot(shot, projectState);
     const video = projectState.video || {};
-    const numerator = Math.max(1, Math.round(Number(video.fpsNumerator) || 25));
+    const numerator = Math.max(1, Math.round(Number(video.fpsNumerator) || 24));
     const denominator = Math.max(1, Math.round(Number(video.fpsDenominator) || 1));
     const fps = numerator / denominator;
     const regularFrameCount = Math.floor(plan.durationSeconds * fps + 1e-9) + 1;

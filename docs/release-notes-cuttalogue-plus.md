@@ -9,6 +9,8 @@ CUTTAlogue Plus embeds Shot Visualizer's camera mathematics, scene parsing, and 
 - PLY, SPLAT, and GLB scene ingestion; reusable scenes, default cameras, motion calibration, named anchors, and per-shot target bindings.
 - Versioned Camera JSON export and canonical H3 prompt compilation through one browser compiler.
 - Local STDIO MCP server with eleven read tools and controlled Shot, Camera, scene, asset, constraint, prompt, generation, and job operations.
+- Revision-guarded MCP import for explicit local asset files and structured per-character performance authoring, including singing and lip-sync.
+- New projects and empty frame-rate inputs default to 24 fps; existing project frame rates remain unchanged.
 - SHA-256 expected revisions, structured conflicts, project-local inter-process locks, and atomic project writes.
 - Explicit generation startup from persisted shot state and effective cancellation checks throughout the ComfyUI polling path.
 

@@ -8,6 +8,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 
+from .asset_import_service import AssetImportService
 from .camera_service import CameraEvaluationError
 from .comfy import GenerationStartError
 from .generation_service import GenerationService
@@ -30,6 +31,7 @@ EXPECTED_READ_ERRORS = (
 )
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 CONTROLLED_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+LOCAL_FILE_IMPORT = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
 CONTROLLED_DELETE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
 EXTERNAL_ACTION = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True)
 
@@ -104,6 +106,7 @@ def create_mcp_server(data_dir: Path | None = None) -> MCPServer:
     root = data_dir or Path(os.environ.get("CUTTALOGUE_PROJECTS_DIR", DATA_DIR))
     service = ProjectReadService(ProjectRepository(root))
     write_service = ProjectWriteService(ProjectRepository(root))
+    asset_import_service = AssetImportService(ProjectRepository(root))
     generation_service = GenerationService(ProjectRepository(root))
     activity_store = LiveActivityStore(root)
     server = MCPServer(
@@ -203,6 +206,17 @@ def create_mcp_server(data_dir: Path | None = None) -> MCPServer:
         """Rename one shot when the project revision still matches."""
         return _write(write_service.rename_shot, project_id, shot_id, expected_revision, name)
 
+    @server.tool(annotations=LOCAL_FILE_IMPORT)
+    async def import_asset(
+        project_id: str, expected_revision: str, source_path: str,
+        description: str = "", kind: str = "",
+    ) -> dict[str, Any]:
+        """Copy one absolute local file into project assets with a fresh revision."""
+        return await _write_async(
+            asset_import_service.import_asset, project_id, expected_revision,
+            source_path, description, kind,
+        )
+
     @server.tool(annotations=CONTROLLED_WRITE)
     def add_camera_segment(
         project_id: str, shot_id: int, expected_revision: str,
@@ -258,6 +272,35 @@ def create_mcp_server(data_dir: Path | None = None) -> MCPServer:
         return _write(
             write_service.remove_camera_segment, project_id, shot_id,
             segment_index, expected_revision,
+        )
+
+    @server.tool(annotations=CONTROLLED_WRITE)
+    def add_subject_segment(
+        project_id: str, shot_id: int, asset_id: str,
+        expected_revision: str, start_seconds: float, end_seconds: float,
+        action_type: str = "", vocal_performance: str = "",
+        manner: str = "", gaze: str = "", eyes: str = "",
+        expression: str = "", gesture: str = "", body_motion: str = "",
+        notes: str = "", enabled: bool = True,
+    ) -> dict[str, Any]:
+        """Add one validated performance segment for an assigned character asset."""
+        segment = {
+            "startSeconds": start_seconds,
+            "endSeconds": end_seconds,
+            "actionType": action_type,
+            "vocalPerformance": vocal_performance,
+            "manner": manner,
+            "gaze": gaze,
+            "eyes": eyes,
+            "expression": expression,
+            "gesture": gesture,
+            "bodyMotion": body_motion,
+            "notes": notes,
+            "enabled": enabled,
+        }
+        return _write(
+            write_service.add_subject_segment, project_id, shot_id, asset_id,
+            expected_revision, segment,
         )
 
     @server.tool(annotations=CONTROLLED_WRITE)
