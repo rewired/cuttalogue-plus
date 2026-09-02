@@ -98,6 +98,8 @@ async def _write_async(operation, *args) -> Any:
         return _write_error({"code": "validation_error", "message": str(error)})
     except GenerationStartError as error:
         return _write_error({"code": "generation_start_error", "message": str(error)})
+    except LiveActivityError as error:
+        return _write_error({"code": "live_activity_error", "message": str(error)})
     except InvalidProjectError as error:
         return _write_error({"code": "invalid_project", "message": str(error)})
 
@@ -115,7 +117,8 @@ def create_mcp_server(data_dir: Path | None = None) -> MCPServer:
             "Read CUTTAlogue projects, shots, Direction data, camera paths, prompts, and jobs. "
             "Narrow write tools require the exact revision returned by a fresh read. "
             "For multi-step edits that the user should watch or wait for, call begin_live_edit first, "
-            "update_live_edit as meaningful stages complete, and always call end_live_edit."
+            "update_live_edit as meaningful stages complete, wait_for_live_edit before reporting success, "
+            "and always call end_live_edit."
         ),
     )
 
@@ -130,6 +133,13 @@ def create_mcp_server(data_dir: Path | None = None) -> MCPServer:
     ) -> dict[str, Any]:
         """Update the message and optional progress shown in the frontend wait modal."""
         return _write(activity_store.update, session_id, message, progress_percent)
+
+    @server.tool(annotations=READ_ONLY)
+    async def wait_for_live_edit(
+        session_id: str, timeout_seconds: float = 10,
+    ) -> dict[str, Any]:
+        """Wait until the open frontend acknowledges the current project revision."""
+        return await _write_async(activity_store.wait_for_browser_revision, session_id, timeout_seconds)
 
     @server.tool(annotations=CONTROLLED_WRITE)
     def end_live_edit(session_id: str, message: str = "Changes complete") -> dict[str, Any]:

@@ -1,5 +1,6 @@
 """Regression checks for process-safe MCP live activity."""
 
+import asyncio
 import json
 import sys
 import tempfile
@@ -42,6 +43,19 @@ with tempfile.TemporaryDirectory(prefix="cuttalogue-live-test-") as raw:
     store = LiveActivityStore(root, repository)
     check(store.read()["active"] is False, "missing activity file reads as idle")
 
+    try:
+        store.begin("project-a", "No browser")
+        check(False, "live edits reject an editor without a current browser handshake")
+    except LiveActivityError as error:
+        check("frontend handshake" in str(error), "live edits reject an editor without a current browser handshake")
+
+    project_revision = repository.read("project-a")["revision"]
+    acknowledged = store.acknowledge_browser("project-a", project_revision)
+    check(
+        acknowledged["revision"] == project_revision and store.browser_status("project-a")["connected"],
+        "browser acknowledgement records a fresh connected revision",
+    )
+
     begun = store.begin("project-a", "Planning camera motion", 1)
     check(begun["active"] and begun["shotId"] == 1, "begin opens a project-scoped live session")
     check(begun["revision"] == repository.read("project-a")["revision"], "begin returns the canonical project revision")
@@ -54,6 +68,11 @@ with tempfile.TemporaryDirectory(prefix="cuttalogue-live-test-") as raw:
 
     updated = store.update(begun["sessionId"], "Adding camera segments", 50)
     check(updated["message"] == "Adding camera segments" and updated["progressPercent"] == 50, "update changes visible progress")
+    confirmed = asyncio.run(store.wait_for_browser_revision(begun["sessionId"], 0.2))
+    check(
+        confirmed["revision"] == project_revision,
+        "live wait confirms the exact revision acknowledged by the browser",
+    )
 
     try:
         store.update("wrong-session", "Invalid")
@@ -91,6 +110,14 @@ with tempfile.TemporaryDirectory(prefix="cuttalogue-live-test-") as raw:
         body = response.json()
         check(response.status_code == 200 and body["revision"] == active["revision"], "HTTP live state returns the current revision")
         check(body["activity"]["sessionId"] == active["sessionId"], "HTTP live state exposes the active frontend session")
+        check(body["browser"]["connected"] is True, "HTTP live state exposes the browser handshake")
+        ack_response = TestClient(app).post("/api/projects/project-a/live/ack", json={
+            "revision": body["revision"],
+        })
+        check(
+            ack_response.status_code == 200 and ack_response.json()["revision"] == body["revision"],
+            "HTTP live acknowledgement records the browser revision",
+        )
     finally:
         live_api.DATA_DIR = original_data_dir
 

@@ -32,9 +32,13 @@ const liveIndex = html.indexOf('js/mcpLive.js');
 const mainIndex = html.indexOf('js/main.js');
 assert(apiIndex >= 0 && projectIndex > apiIndex && liveIndex > projectIndex && mainIndex > liveIndex, 'live controller loads after API/project and before app initialization');
 assert(api.includes('/api/projects/${id}/live'), 'frontend API reads the project live-state endpoint');
+assert(api.includes('/api/projects/${id}/live/ack'), 'frontend API acknowledges the revision visible in the browser');
 assert(live.includes('POLL_INTERVAL_MS = 750'), 'live revisions are observed with a sub-second polling interval');
 assert(live.includes('MSE.project.isDirty()'), 'live updates guard unsaved browser state');
 assert(live.includes('MSE.project.applyLiveProject(project)'), 'revision changes apply through the dedicated live project path');
+assert(live.includes('observedRevision === null || live.revision !== observedRevision'), 'the first live poll loads canonical state instead of accepting an unknown baseline');
+assert(live.includes('acknowledgeProjectLive(projectId, observedRevision)'), 'each visible revision is acknowledged to the backend');
+assert(live.includes('live.activity && live.activity.active'), 'a verified modal session resolves draft-poll races while interaction is blocked');
 assert(live.includes('activity.progressPercent'), 'agent progress is rendered in the wait modal');
 
 const liveApply = project.slice(project.indexOf('function applyLiveProject'), project.indexOf('function autoLoadAudioFromBackend'));

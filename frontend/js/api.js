@@ -25,6 +25,16 @@
     return res.json(); // { projectId, revision, activity }
   }
 
+  async function acknowledgeProjectLive(id, revision) {
+    const res = await fetch(`/api/projects/${id}/live/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision }),
+    });
+    if (!res.ok) throw new Error(`acknowledge project live state failed: ${res.status}`);
+    return res.json();
+  }
+
   async function listProjects() {
     const res = await fetch('/api/projects');
     if (!res.ok) throw new Error(`list projects failed: ${res.status}`);
@@ -256,6 +266,7 @@
     createProject,
     getProject,
     getProjectLive,
+    acknowledgeProjectLive,
     listProjects,
     putProject,
     uploadAssets,

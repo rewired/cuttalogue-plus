@@ -51,8 +51,8 @@
     elements.overlay.hidden = false;
   }
 
-  async function applyRevision(projectId, revision) {
-    if (MSE.project.isDirty()) {
+  async function applyRevision(projectId, revision, allowDirtyDuringActiveSession = false) {
+    if (MSE.project.isDirty() && !allowDirtyDuringActiveSession) {
       renderDirtyConflict();
       return false;
     }
@@ -80,10 +80,16 @@
       const live = await MSE.api.getProjectLive(projectId);
       loggedConnectionError = false;
       renderActivity(live.activity);
-      if (observedRevision === null) {
-        observedRevision = live.revision;
-      } else if (live.revision !== observedRevision) {
-        await applyRevision(projectId, live.revision);
+      if (observedRevision === null || live.revision !== observedRevision) {
+        // begin_live_edit verifies the browser draft is clean before the modal
+        // blocks interaction. A draft-poll race during that active session is
+        // therefore safe to replace with the canonical MCP revision.
+        const allowDirty = Boolean(live.activity && live.activity.active);
+        const applied = await applyRevision(projectId, live.revision, allowDirty);
+        if (!applied) return;
+      }
+      if (observedRevision) {
+        await MSE.api.acknowledgeProjectLive(projectId, observedRevision);
       }
     } catch (error) {
       if (!loggedConnectionError) {
