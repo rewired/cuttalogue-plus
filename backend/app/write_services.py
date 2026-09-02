@@ -29,6 +29,24 @@ CAMERA_DEFAULTS = {
     "target": "", "focalLength": "", "depthOfField": "", "focusTarget": "",
     "transitionToNext": "", "enabled": True,
 }
+SUBJECT_STRING_FIELDS = {
+    "actionType", "vocalPerformance", "manner", "gaze", "eyes",
+    "expression", "gesture", "bodyMotion", "notes",
+}
+SUBJECT_PATCH_FIELDS = SUBJECT_STRING_FIELDS | {"startSeconds", "endSeconds", "enabled"}
+SUBJECT_DEFAULTS = {
+    "startSeconds": 0.0, "endSeconds": 0.0, "actionType": "",
+    "vocalPerformance": "", "manner": "", "gaze": "", "eyes": "",
+    "expression": "", "gesture": "", "bodyMotion": "", "notes": "",
+    "enabled": True,
+}
+SUBJECT_ACTION_TYPES = {
+    "", "walk", "run", "stop", "sit", "stand", "turn", "reach",
+    "pick_up", "put_down", "drink", "check_phone", "look", "speak",
+    "interact", "sing",
+}
+VOCAL_PERFORMANCES = {"", "lip_sync", "sing", "speak"}
+EYE_STATES = {"", "open", "closed", "half_closed"}
 ASSET_ROLES = {"", "primary_character", "supporting_character", "environment", "prop"}
 
 
@@ -176,6 +194,50 @@ def _assets(project: dict) -> list[dict]:
             raise WriteValidationError("existing asset ids must be unique non-empty strings")
         seen_ids.add(asset_id)
     return assets
+
+
+def _subject_lane(shot: dict, asset_id: str) -> list[dict]:
+    direction = shot.setdefault("direction", {})
+    if not isinstance(direction, dict):
+        raise WriteValidationError("shot direction must be an object")
+    subjects = direction.setdefault("subjects", {})
+    if not isinstance(subjects, dict):
+        raise WriteValidationError("subject direction must be an object")
+    lane = subjects.setdefault(asset_id, [])
+    if not isinstance(lane, list) or not all(isinstance(segment, dict) for segment in lane):
+        raise WriteValidationError("subject lane must be an array of objects")
+    return lane
+
+
+def _validate_subject_segment(segment: dict, duration: float) -> None:
+    start = _finite(segment.get("startSeconds"), "subject segment start")
+    end = _finite(segment.get("endSeconds"), "subject segment end")
+    if start < 0 or end - start < MIN_SEGMENT_SECONDS or end > duration:
+        raise WriteValidationError("subject segment timing must be inside the shot")
+    segment["startSeconds"], segment["endSeconds"] = start, end
+    for field in SUBJECT_STRING_FIELDS:
+        if not isinstance(segment.get(field, ""), str):
+            raise WriteValidationError(f"subject segment {field} must be a string")
+    if segment.get("actionType", "") not in SUBJECT_ACTION_TYPES:
+        raise WriteValidationError("unsupported subject action type")
+    if segment.get("vocalPerformance", "") not in VOCAL_PERFORMANCES:
+        raise WriteValidationError("unsupported vocal performance")
+    if segment.get("eyes", "") not in EYE_STATES:
+        raise WriteValidationError("unsupported subject eye state")
+    if not isinstance(segment.get("enabled", True), bool):
+        raise WriteValidationError("subject segment enabled must be a boolean")
+
+
+def _validate_subject_lane(lane: list[dict], duration: float) -> None:
+    for segment in lane:
+        _validate_subject_segment(segment, duration)
+    active = sorted(
+        (segment for segment in lane if segment.get("enabled", True)),
+        key=lambda segment: segment["startSeconds"],
+    )
+    for previous, current in zip(active, active[1:]):
+        if current["startSeconds"] < previous["endSeconds"]:
+            raise WriteValidationError("active subject segments overlap")
 
 
 def _camera_lane(shot: dict) -> list[dict]:
@@ -348,6 +410,39 @@ class ProjectWriteService:
             "projectId": project_id, "shotId": shot_id, "previousRevision": expected_revision,
             "revision": saved["revision"], "removedSegmentIndex": index,
             "removedSegment": deepcopy(removed),
+        }
+
+    def add_subject_segment(
+        self, project_id: str, shot_id: int, asset_id: str,
+        expected_revision: str, segment: dict,
+    ) -> dict:
+        if not isinstance(asset_id, str) or not asset_id:
+            raise WriteValidationError("asset id must be a non-empty string")
+        if not isinstance(segment, dict) or set(segment) - SUBJECT_PATCH_FIELDS:
+            raise WriteValidationError("subject segment contains unsupported fields")
+        record = self._read_for_write(project_id, expected_revision)
+        project = record["project"]
+        if not any(asset.get("id") == asset_id for asset in _assets(project)):
+            raise AssetNotFoundError("asset not found")
+        _shot_index, shot = _find_shot(_shots(project), shot_id)
+        asset_ids = shot.get("assetIds") or []
+        if not isinstance(asset_ids, list) or asset_id not in asset_ids:
+            raise WriteValidationError("subject asset must be assigned to the shot")
+        lane = _subject_lane(shot, asset_id)
+        created = {**SUBJECT_DEFAULTS, **segment}
+        lane.append(created)
+        duration = (
+            _finite(shot.get("endSeconds"), "shot end")
+            - _finite(shot.get("startSeconds"), "shot start")
+        )
+        _validate_subject_lane(lane, duration)
+        lane.sort(key=lambda item: item["startSeconds"])
+        segment_index = next(index for index, item in enumerate(lane) if item is created)
+        saved = self.repository.write(project_id, project, expected_revision)
+        return {
+            "projectId": project_id, "shotId": shot_id, "assetId": asset_id,
+            "previousRevision": expected_revision, "revision": saved["revision"],
+            "segmentIndex": segment_index, "segment": deepcopy(created),
         }
 
     def assign_scene(self, project_id: str, shot_id: int, expected_revision: str, scene_id: str | None) -> dict:

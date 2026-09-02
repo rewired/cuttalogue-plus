@@ -60,6 +60,8 @@ Every project result includes a SHA-256 content revision where applicable. Proje
 - add_camera_segment
 - update_camera_segment
 - remove_camera_segment
+- add_subject_segment
+- import_asset
 - assign_scene
 - set_scene_anchor
 - bind_camera_target
@@ -72,6 +74,10 @@ Every project result includes a SHA-256 content revision where applicable. Proje
 Every write requires `expected_revision` from a fresh read. Write failures return MCP errors with structured `code` and `message` fields; revision conflicts additionally contain `expectedRevision` and `currentRevision`. Failed writes do not change the project. Writes hold a project-local inter-process lock across revision verification and use same-directory temporary files plus atomic replacement.
 
 Camera segment times are shot-relative. Active segments must stay inside the shot and may touch but not overlap. Disabled draft segments may overlap. Segment mutations address the current start-time-sorted `segment_index`; add and update responses return the resulting sorted index. Removal is explicitly marked destructive in MCP tool metadata.
+
+Subject segment times are also shot-relative. `add_subject_segment` requires an asset already assigned to the shot, validates the Character action, vocal-performance and eye-state vocabularies, and rejects overlapping active segments for the same subject. This keeps singing and lip-sync intent in structured Direction instead of hiding it in a free-text constraint.
+
+`import_asset` copies one explicitly named absolute local file into project-owned storage, builds the normal metadata and thumbnail descriptor, and registers it under the same expected-revision guard as other writes. It is non-destructive but marked open-world because it reads a caller-selected local path. A failed or conflicting import removes its newly staged project asset directory.
 
 Scene writes only reference existing scenes. Anchors require finite 3D coordinates; renaming an anchor migrates bindings in shots assigned to that scene. Target bindings require an assigned scene and an existing anchor. Passing an empty scene or anchor id clears the corresponding assignment or binding.
 

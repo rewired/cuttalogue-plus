@@ -24,6 +24,8 @@ function equal(actual, expected, label) {
   else { failures += 1; console.error(`FAIL: ${label}\n  expected: ${JSON.stringify(expected)}\n  actual:   ${JSON.stringify(actual)}`); }
 }
 
+equal(MSE.state.createDefaultState().video.fpsNumerator, 24, 'new projects default to 24 fps');
+
 const scene = {
   id: 'scene-1', unitsPerMeter: 1,
   defaultCamera: { position: [0, 0, 4], target: [0, 0, 0], focalLengthMm: 35 },
@@ -58,6 +60,9 @@ equal(
   JSON.stringify(MSE.cameraService.exportCamera(shot, project)),
   'camera export is byte-deterministic for identical input'
 );
+
+const defaultFrameRate = MSE.cameraService.exportCamera(shot, { ...project, video: {} }).frameRate;
+equal(defaultFrameRate, { numerator: 24, denominator: 1, fps: 24 }, 'camera export fallback is 24 fps');
 
 const fractionalShot = { ...shot, endSeconds: 10.1, direction: { camera: [] } };
 const fractional = MSE.cameraService.exportCamera(fractionalShot, { ...project, video: { fpsNumerator: 24, fpsDenominator: 1 } });

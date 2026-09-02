@@ -151,7 +151,7 @@
 
   function wireVideoSettings() {
     function applyVideo() {
-      state.video.fpsNumerator = Math.max(0.001, Number(el.fps.value) || 25);
+      state.video.fpsNumerator = Math.max(0.001, Number(el.fps.value) || 24);
       state.video.fpsDenominator = 1;
       const rule = el.frameRule.value;
       state.video.frameRule = { stride: rule === 'free' ? null : Number(rule), offset: 1 };
