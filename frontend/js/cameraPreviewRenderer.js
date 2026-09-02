@@ -36,6 +36,26 @@
       gl_FragColor = vec4(color.rgb, color.a * smoothstep(0.25, 0.08, distanceSquared));
     }
   `;
+  const TEXTURE_VERTEX_SHADER = `
+    attribute vec3 position;
+    attribute vec2 texCoord;
+    uniform mat4 viewProjection;
+    varying vec2 uv;
+    void main() {
+      gl_Position = viewProjection * vec4(position, 1.0);
+      uv = texCoord;
+    }
+  `;
+  const TEXTURE_FRAGMENT_SHADER = `
+    precision mediump float;
+    uniform sampler2D imageTexture;
+    uniform float opacity;
+    varying vec2 uv;
+    void main() {
+      vec4 pixel = texture2D(imageTexture, uv);
+      gl_FragColor = vec4(pixel.rgb, pixel.a * opacity);
+    }
+  `;
 
   function createShader(gl, type, source) {
     const shader = gl.createShader(type);
@@ -119,6 +139,68 @@
     return vertices;
   }
 
+  const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+
+  function freeCameraFromOrbit(orbit) {
+    const camera = {
+      position: [0, 0, 0],
+      yaw: orbit.yaw,
+      pitch: orbit.pitch,
+      roll: 0,
+      focalLengthMm: orbit.focalLengthMm,
+    };
+    const forward = MSE.cameraPath.cameraBasis(camera).forward;
+    camera.position = orbit.target.map((value, index) => value - forward[index] * orbit.distance);
+    return camera;
+  }
+
+  function cameraFrustumVertices(camera, aspect) {
+    const basis = MSE.cameraPath.cameraBasis(camera);
+    const length = 1.5;
+    const halfHeight = length * Math.tan(fieldOfView(camera.focalLengthMm) / 2);
+    const halfWidth = halfHeight * aspect;
+    const center = camera.position.map((value, index) => value + basis.forward[index] * length);
+    const corner = (horizontal, vertical) => center.map((value, index) =>
+      value + basis.right[index] * halfWidth * horizontal + basis.up[index] * halfHeight * vertical);
+    const corners = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
+    const vertices = [];
+    corners.forEach((point) => vertices.push(...camera.position, ...point));
+    for (let index = 0; index < 4; index += 1) {
+      vertices.push(...corners[index], ...corners[(index + 1) % 4]);
+    }
+    return vertices;
+  }
+
+  function moodCardVertices(config, camera) {
+    const [x, y, z] = config.position;
+    const width = Math.max(0.1, config.width);
+    const height = Math.max(0.1, config.height);
+    const yaw = config.billboard
+      ? Math.atan2(camera.position[0] - x, camera.position[2] - z)
+      : config.yawDegrees * Math.PI / 180;
+    const cosine = Math.cos(yaw);
+    const sine = Math.sin(yaw);
+    const point = (horizontal, vertical, u, v) => [
+      x + horizontal * cosine,
+      y + vertical,
+      z - horizontal * sine,
+      u,
+      v,
+    ];
+    const left = -width / 2;
+    const right = width / 2;
+    const bottom = -height / 2;
+    const top = height / 2;
+    return [
+      ...point(left, bottom, 0, 0),
+      ...point(right, bottom, 1, 0),
+      ...point(right, top, 1, 1),
+      ...point(left, bottom, 0, 0),
+      ...point(right, top, 1, 1),
+      ...point(left, top, 0, 1),
+    ];
+  }
+
   class CameraPreviewRenderer {
     constructor(canvas) {
       this.canvas = canvas;
@@ -135,6 +217,14 @@
         matrix: this.gl.getUniformLocation(this.pointProgram, 'viewProjection'),
         scale: this.gl.getUniformLocation(this.pointProgram, 'pointScale'),
       };
+      this.textureProgram = createProgram(this.gl, TEXTURE_VERTEX_SHADER, TEXTURE_FRAGMENT_SHADER);
+      this.textureLocations = {
+        position: this.gl.getAttribLocation(this.textureProgram, 'position'),
+        texCoord: this.gl.getAttribLocation(this.textureProgram, 'texCoord'),
+        matrix: this.gl.getUniformLocation(this.textureProgram, 'viewProjection'),
+        texture: this.gl.getUniformLocation(this.textureProgram, 'imageTexture'),
+        opacity: this.gl.getUniformLocation(this.textureProgram, 'opacity'),
+      };
       const gridVertices = groundGrid();
       this.gridBuffer = this.createBuffer(gridVertices);
       this.gridVertexCount = gridVertices.length / 3;
@@ -142,9 +232,22 @@
       this.pathVertexCount = 0;
       this.anchorBuffer = this.gl.createBuffer();
       this.anchorVertexCount = 0;
+      this.frustumBuffer = this.gl.createBuffer();
       this.pointCloud = null;
       this.blockoutBuffer = null;
       this.blockoutVertexCount = 0;
+      this.moodCardBuffer = this.gl.createBuffer();
+      this.moodCardTexture = null;
+      this.moodCardSource = null;
+      this.moodCardConfig = null;
+      this.moodLoadToken = 0;
+      this.freeOrbit = {
+        target: [0, 1.4, 0],
+        yaw: -0.7,
+        pitch: -0.35,
+        distance: 10,
+        focalLengthMm: 45,
+      };
       this.disposed = false;
     }
 
@@ -184,6 +287,69 @@
       this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.anchorBuffer);
       this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(vertices), this.gl.DYNAMIC_DRAW);
       this.anchorVertexCount = vertices.length / 3;
+    }
+
+    setMoodCardConfig(config) {
+      this.moodCardConfig = config ? {
+        ...config,
+        position: [...config.position],
+      } : null;
+    }
+
+    clearMoodCard() {
+      this.moodLoadToken += 1;
+      if (this.moodCardTexture) this.gl.deleteTexture(this.moodCardTexture);
+      this.moodCardTexture = null;
+      this.moodCardSource = null;
+    }
+
+    async setMoodCardSource(source) {
+      if (this.disposed || !source) return null;
+      if (this.moodCardSource === source && this.moodCardTexture) return null;
+      const token = ++this.moodLoadToken;
+      const image = new Image();
+      image.decoding = 'async';
+      const loaded = new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error('Could not load the environment image for the mood card.'));
+      });
+      image.src = source;
+      await loaded;
+      if (this.disposed || token !== this.moodLoadToken) return null;
+
+      if (this.moodCardTexture) this.gl.deleteTexture(this.moodCardTexture);
+      const gl = this.gl;
+      this.moodCardTexture = gl.createTexture();
+      this.moodCardSource = source;
+      gl.bindTexture(gl.TEXTURE_2D, this.moodCardTexture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return { aspect: image.naturalWidth / Math.max(1, image.naturalHeight) };
+    }
+
+    resetFreeView() {
+      this.freeOrbit = { target: [0, 1.4, 0], yaw: -0.7, pitch: -0.35, distance: 10, focalLengthMm: 45 };
+    }
+
+    orbitFreeView(deltaX, deltaY) {
+      this.freeOrbit.yaw -= deltaX * 0.006;
+      this.freeOrbit.pitch = clamp(this.freeOrbit.pitch - deltaY * 0.006, -1.45, 1.45);
+    }
+
+    panFreeView(deltaX, deltaY) {
+      const camera = freeCameraFromOrbit(this.freeOrbit);
+      const { right, up } = MSE.cameraPath.cameraBasis(camera);
+      const scale = this.freeOrbit.distance * 0.0015;
+      this.freeOrbit.target = this.freeOrbit.target.map((value, index) =>
+        value - right[index] * deltaX * scale + up[index] * deltaY * scale);
+    }
+
+    zoomFreeView(delta) {
+      this.freeOrbit.distance = clamp(this.freeOrbit.distance * Math.exp(delta * 0.001), 0.4, 250);
     }
 
     clearScene() {
@@ -260,6 +426,31 @@
       gl.disable(gl.BLEND);
     }
 
+    drawMoodCard(viewProjection, camera) {
+      const config = this.moodCardConfig;
+      if (!config || config.enabled === false || !this.moodCardTexture) return;
+      const gl = this.gl;
+      const vertices = moodCardVertices(config, camera);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.moodCardBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.DYNAMIC_DRAW);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.useProgram(this.textureProgram);
+      gl.uniformMatrix4fv(this.textureLocations.matrix, false, viewProjection);
+      gl.uniform1f(this.textureLocations.opacity, clamp(config.opacity, 0.05, 0.8));
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.moodCardTexture);
+      gl.uniform1i(this.textureLocations.texture, 0);
+      gl.enableVertexAttribArray(this.textureLocations.position);
+      gl.vertexAttribPointer(this.textureLocations.position, 3, gl.FLOAT, false, 20, 0);
+      gl.enableVertexAttribArray(this.textureLocations.texCoord);
+      gl.vertexAttribPointer(this.textureLocations.texCoord, 2, gl.FLOAT, false, 20, 12);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+    }
+
     render(pose, viewMode) {
       if (this.disposed) return;
       this.resize();
@@ -270,7 +461,7 @@
       gl.useProgram(this.program);
 
       const camera = viewMode === 'free'
-        ? { position: [6, 5, 7], yaw: -0.7, pitch: -0.35, roll: 0, focalLengthMm: 45 }
+        ? freeCameraFromOrbit(this.freeOrbit)
         : pose;
       const aspect = this.canvas.width / Math.max(1, this.canvas.height);
       const projection = perspectiveMatrix(fieldOfView(camera.focalLengthMm), aspect, 0.05, 10000);
@@ -278,6 +469,7 @@
       gl.uniformMatrix4fv(this.matrixLocation, false, viewProjection);
       this.drawBuffer(this.gridBuffer, this.gridVertexCount, [0.173, 0.196, 0.22, 1], gl.LINES);
       this.drawBuffer(this.blockoutBuffer, this.blockoutVertexCount, [0.36, 0.42, 0.47, 0.65], gl.LINES);
+      this.drawMoodCard(viewProjection, camera);
       this.drawPointCloud(viewProjection);
       this.gl.useProgram(this.program);
       this.gl.uniformMatrix4fv(this.matrixLocation, false, viewProjection);
@@ -287,17 +479,26 @@
         gl.uniformMatrix4fv(this.matrixLocation, false, viewProjection);
         gl.disable(gl.DEPTH_TEST);
         this.drawBuffer(this.pathBuffer, this.pathVertexCount, [0.298, 0.553, 1, 1], gl.LINE_STRIP);
+        const frustumVertices = cameraFrustumVertices(pose, aspect);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.frustumBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(frustumVertices), gl.DYNAMIC_DRAW);
+        this.drawBuffer(this.frustumBuffer, frustumVertices.length / 3, [1, 0.75, 0.2, 1], gl.LINES);
+        gl.enable(gl.DEPTH_TEST);
       }
     }
 
     dispose() {
       if (this.disposed) return;
       this.clearScene();
+      this.clearMoodCard();
       this.gl.deleteBuffer(this.gridBuffer);
       this.gl.deleteBuffer(this.pathBuffer);
       this.gl.deleteBuffer(this.anchorBuffer);
+      this.gl.deleteBuffer(this.frustumBuffer);
+      this.gl.deleteBuffer(this.moodCardBuffer);
       this.gl.deleteProgram(this.program);
       this.gl.deleteProgram(this.pointProgram);
+      this.gl.deleteProgram(this.textureProgram);
       this.disposed = true;
     }
   }

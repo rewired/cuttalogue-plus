@@ -4,7 +4,7 @@
 (function (MSE) {
   'use strict';
 
-  const { state, on } = MSE.state;
+  const { state, on, emit } = MSE.state;
   const elements = {};
   let renderer = null;
   let currentShot = null;
@@ -17,6 +17,9 @@
   let localPlaybackStartTime = 0;
   let projectIsPlaying = false;
   let sceneLoadToken = 0;
+  let moodLoadToken = 0;
+  let dragPointerId = null;
+  let dragPosition = null;
   let pathStatus = { text: '', warning: false };
   let sceneStatus = { text: '', warning: false };
 
@@ -39,6 +42,21 @@
     elements.scrubber = document.getElementById('camera-preview-scrubber');
     elements.duration = document.getElementById('camera-preview-duration');
     elements.export = document.getElementById('camera-preview-export-btn');
+    elements.resetView = document.getElementById('camera-preview-reset-view-btn');
+    elements.freeHelp = document.getElementById('camera-preview-free-help');
+    elements.moodButton = document.getElementById('camera-preview-mood-btn');
+    elements.moodPanel = document.getElementById('camera-preview-mood-panel');
+    elements.moodSource = document.getElementById('camera-preview-mood-source');
+    elements.moodEnabled = document.getElementById('camera-preview-mood-enabled');
+    elements.moodBillboard = document.getElementById('camera-preview-mood-billboard');
+    elements.moodOpacity = document.getElementById('camera-preview-mood-opacity');
+    elements.moodX = document.getElementById('camera-preview-mood-x');
+    elements.moodY = document.getElementById('camera-preview-mood-y');
+    elements.moodZ = document.getElementById('camera-preview-mood-z');
+    elements.moodWidth = document.getElementById('camera-preview-mood-width');
+    elements.moodHeight = document.getElementById('camera-preview-mood-height');
+    elements.moodYaw = document.getElementById('camera-preview-mood-yaw');
+    elements.moodReset = document.getElementById('camera-preview-mood-reset-btn');
   }
 
   function selectedShot() {
@@ -96,6 +114,116 @@
     elements.scene.value = currentShot && currentShot.sceneId ? currentShot.sceneId : '';
   }
 
+  function environmentMoodAsset() {
+    if (!currentShot) return null;
+    const assetId = (currentShot.assetIds || []).find((id) => currentShot.assetRoles && currentShot.assetRoles[id] === 'environment');
+    return state.assets.find((asset) => asset.id === assetId && asset.type === 'image') || null;
+  }
+
+  function defaultMoodConfig(asset) {
+    const metadata = (asset && asset.metadata) || {};
+    const aspect = Number(metadata.width) > 0 && Number(metadata.height) > 0
+      ? Number(metadata.width) / Number(metadata.height)
+      : 16 / 9;
+    return {
+      enabled: true,
+      billboard: false,
+      opacity: 0.28,
+      position: [0, 1.8, 0],
+      width: 6,
+      height: 6 / aspect,
+      yawDegrees: 0,
+    };
+  }
+
+  function finite(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function moodConfig(asset = environmentMoodAsset()) {
+    const defaults = defaultMoodConfig(asset);
+    const stored = currentShot && currentShot.preview && currentShot.preview.moodCard;
+    if (!stored || typeof stored !== 'object') return defaults;
+    const position = Array.isArray(stored.position) ? stored.position : defaults.position;
+    return {
+      enabled: stored.enabled !== false,
+      billboard: stored.billboard === true,
+      opacity: Math.max(0.05, Math.min(0.8, finite(stored.opacity, defaults.opacity))),
+      position: defaults.position.map((value, index) => finite(position[index], value)),
+      width: Math.max(0.1, finite(stored.width, defaults.width)),
+      height: Math.max(0.1, finite(stored.height, defaults.height)),
+      yawDegrees: finite(stored.yawDegrees, defaults.yawDegrees),
+    };
+  }
+
+  function syncMoodControls(config, asset) {
+    elements.moodSource.textContent = asset ? asset.fileName : 'No environment image assigned';
+    const disabled = !asset;
+    [
+      elements.moodEnabled, elements.moodBillboard, elements.moodOpacity,
+      elements.moodX, elements.moodY, elements.moodZ,
+      elements.moodWidth, elements.moodHeight, elements.moodYaw, elements.moodReset,
+    ].forEach((control) => { control.disabled = disabled; });
+    elements.moodEnabled.checked = !!config.enabled;
+    elements.moodBillboard.checked = !!config.billboard;
+    elements.moodOpacity.value = String(config.opacity);
+    elements.moodX.value = String(config.position[0]);
+    elements.moodY.value = String(config.position[1]);
+    elements.moodZ.value = String(config.position[2]);
+    elements.moodWidth.value = String(config.width);
+    elements.moodHeight.value = String(config.height);
+    elements.moodYaw.value = String(config.yawDegrees);
+  }
+
+  async function loadMoodCard() {
+    const token = ++moodLoadToken;
+    if (!renderer || !currentShot) return;
+    const asset = environmentMoodAsset();
+    const config = moodConfig(asset);
+    syncMoodControls(config, asset);
+    renderer.clearMoodCard();
+    renderer.setMoodCardConfig(asset ? config : null);
+    if (!asset || !MSE.sceneGeometry) return render();
+    try {
+      const source = MSE.sceneGeometry.projectFileUrl(MSE.project.getProjectId(), asset.relativePath);
+      await renderer.setMoodCardSource(source);
+      if (token !== moodLoadToken || !renderer) return;
+    } catch (error) {
+      console.error(error);
+      sceneStatus = { text: error.message, warning: true };
+      updateDiagnostics();
+    }
+    render();
+  }
+
+  function persistMoodConfig(config) {
+    if (!currentShot || !environmentMoodAsset()) return;
+    currentShot.preview = currentShot.preview || {};
+    currentShot.preview.moodCard = config;
+    renderer.setMoodCardConfig(config);
+    syncMoodControls(config, environmentMoodAsset());
+    emit('shots-changed', { reason: 'mood-card' });
+    render();
+  }
+
+  function readMoodControls() {
+    const fallback = moodConfig();
+    return {
+      enabled: elements.moodEnabled.checked,
+      billboard: elements.moodBillboard.checked,
+      opacity: finite(elements.moodOpacity.value, fallback.opacity),
+      position: [
+        finite(elements.moodX.value, fallback.position[0]),
+        finite(elements.moodY.value, fallback.position[1]),
+        finite(elements.moodZ.value, fallback.position[2]),
+      ],
+      width: Math.max(0.1, finite(elements.moodWidth.value, fallback.width)),
+      height: Math.max(0.1, finite(elements.moodHeight.value, fallback.height)),
+      yawDegrees: finite(elements.moodYaw.value, fallback.yawDegrees),
+    };
+  }
+
   async function loadCurrentScene() {
     const token = ++sceneLoadToken;
     if (!renderer || !currentShot || !MSE.sceneGeometry || !MSE.scenes) return;
@@ -145,6 +273,8 @@
     viewMode = nextMode;
     elements.shotView.classList.toggle('active', viewMode === 'shot');
     elements.freeView.classList.toggle('active', viewMode === 'free');
+    elements.overlay.classList.toggle('camera-preview-free-active', viewMode === 'free');
+    elements.freeHelp.hidden = viewMode !== 'free';
     render();
   }
 
@@ -219,6 +349,7 @@
       compileCurrentShot();
       setViewMode('shot');
       loadCurrentScene();
+      loadMoodCard();
     } catch (error) {
       console.error(error);
       elements.diagnostics.textContent = error.message;
@@ -228,6 +359,7 @@
 
   function close() {
     sceneLoadToken += 1;
+    moodLoadToken += 1;
     stopLocalPlayback();
     if (renderer) renderer.dispose();
     renderer = null;
@@ -246,6 +378,52 @@
     });
     elements.shotView.addEventListener('click', () => setViewMode('shot'));
     elements.freeView.addEventListener('click', () => setViewMode('free'));
+    elements.resetView.addEventListener('click', () => {
+      if (!renderer) return;
+      renderer.resetFreeView();
+      render();
+    });
+    elements.moodButton.addEventListener('click', () => {
+      elements.moodPanel.hidden = !elements.moodPanel.hidden;
+      elements.moodButton.classList.toggle('active', !elements.moodPanel.hidden);
+      elements.moodButton.setAttribute('aria-expanded', String(!elements.moodPanel.hidden));
+    });
+    [
+      elements.moodEnabled, elements.moodBillboard, elements.moodOpacity,
+      elements.moodX, elements.moodY, elements.moodZ,
+      elements.moodWidth, elements.moodHeight, elements.moodYaw,
+    ].forEach((control) => control.addEventListener('change', () => persistMoodConfig(readMoodControls())));
+    elements.moodOpacity.addEventListener('input', () => persistMoodConfig(readMoodControls()));
+    elements.moodReset.addEventListener('click', () => persistMoodConfig(defaultMoodConfig(environmentMoodAsset())));
+    elements.canvas.addEventListener('pointerdown', (event) => {
+      if (viewMode !== 'free' || event.button !== 0) return;
+      dragPointerId = event.pointerId;
+      dragPosition = [event.clientX, event.clientY];
+      elements.canvas.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    elements.canvas.addEventListener('pointermove', (event) => {
+      if (!renderer || event.pointerId !== dragPointerId || !dragPosition) return;
+      const deltaX = event.clientX - dragPosition[0];
+      const deltaY = event.clientY - dragPosition[1];
+      dragPosition = [event.clientX, event.clientY];
+      if (event.shiftKey) renderer.panFreeView(deltaX, deltaY);
+      else renderer.orbitFreeView(deltaX, deltaY);
+      render();
+    });
+    const finishDrag = (event) => {
+      if (event.pointerId !== dragPointerId) return;
+      dragPointerId = null;
+      dragPosition = null;
+    };
+    elements.canvas.addEventListener('pointerup', finishDrag);
+    elements.canvas.addEventListener('pointercancel', finishDrag);
+    elements.canvas.addEventListener('wheel', (event) => {
+      if (!renderer || viewMode !== 'free') return;
+      renderer.zoomFreeView(event.deltaY);
+      render();
+      event.preventDefault();
+    }, { passive: false });
     elements.play.addEventListener('click', togglePlayback);
     elements.export.addEventListener('click', exportCurrentCamera);
     elements.scene.addEventListener('change', () => {
@@ -284,6 +462,10 @@
     compileCurrentShot();
     render();
     if (event.detail && event.detail.reason === 'scene') loadCurrentScene();
+    const reason = event.detail && event.detail.reason;
+    if (['assign-asset', 'unassign-asset', 'asset-role', 'delete-asset', 'mcp-live'].includes(reason)) {
+      loadMoodCard();
+    }
   });
   on('shot-selected', () => {
     if (!isOpen()) return;
@@ -296,6 +478,7 @@
     renderSceneSelect();
     render();
     loadCurrentScene();
+    loadMoodCard();
   });
   on('project-loaded', () => { if (isOpen()) close(); });
   on('scenes-changed', (event) => {
@@ -303,6 +486,9 @@
     renderSceneSelect();
     compileCurrentShot();
     if (!event.detail || ['asset-sync', 'asset-delete'].includes(event.detail.reason)) loadCurrentScene();
+  });
+  on('assets-changed', () => {
+    if (isOpen()) loadMoodCard();
   });
 
   document.addEventListener('DOMContentLoaded', init);
