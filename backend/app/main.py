@@ -27,6 +27,7 @@ from .draft import router as draft_router
 from .expand import router as expand_router
 from .export import router as export_router
 from .jobs import router as jobs_router
+from .live_api import router as live_api_router
 from .projects import DATA_DIR
 from .projects import router as projects_router
 from .read_api import router as read_api_router
@@ -58,6 +59,7 @@ app.include_router(projects_router)
 app.include_router(read_api_router)
 app.include_router(write_api_router)
 app.include_router(jobs_router)
+app.include_router(live_api_router)
 app.include_router(assets_router)
 app.include_router(audio_router)
 app.include_router(export_router)

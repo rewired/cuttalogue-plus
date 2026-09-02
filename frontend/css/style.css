@@ -1582,6 +1582,38 @@ th { color: var(--text-dim); font-weight: 500; font-size: 12px; }
   color: var(--text-dim);
 }
 .asset-describe-status[hidden] { display: none; }
+.mcp-live-overlay {
+  z-index: 80;
+  backdrop-filter: blur(2px);
+}
+.mcp-live-modal { width: 460px; }
+.mcp-live-header { padding: 16px; }
+.mcp-live-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mcp-live-heading .spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 3px;
+}
+.mcp-live-scope {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mcp-live-message {
+  margin: 2px 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .spinner {
   display: inline-block;
   width: 10px;

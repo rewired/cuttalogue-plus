@@ -12,6 +12,7 @@ from .camera_service import CameraEvaluationError
 from .comfy import GenerationStartError
 from .generation_service import GenerationService
 from .jobs import JobNotFoundError, cancel_job_request, read_job_status
+from .live_activity import LiveActivityError, LiveActivityStore
 from .project_repository import InvalidProjectError, ProjectNotFoundError, ProjectRepository, RevisionConflictError
 from .projects import DATA_DIR
 from .prompt_service import PromptCompilationError
@@ -68,6 +69,8 @@ def _write(operation, *args) -> Any:
         return _write_error({"code": "anchor_not_found", "message": str(error)})
     except AssetNotFoundError as error:
         return _write_error({"code": "asset_not_found", "message": str(error)})
+    except LiveActivityError as error:
+        return _write_error({"code": "live_activity_error", "message": str(error)})
     except PromptCompilationError as error:
         return _write_error({"code": "prompt_compilation_error", "message": str(error)})
     except WriteValidationError as error:
@@ -102,13 +105,33 @@ def create_mcp_server(data_dir: Path | None = None) -> MCPServer:
     service = ProjectReadService(ProjectRepository(root))
     write_service = ProjectWriteService(ProjectRepository(root))
     generation_service = GenerationService(ProjectRepository(root))
+    activity_store = LiveActivityStore(root)
     server = MCPServer(
         "CUTTAlogue",
         instructions=(
             "Read CUTTAlogue projects, shots, Direction data, camera paths, prompts, and jobs. "
-            "Narrow write tools require the exact revision returned by a fresh read."
+            "Narrow write tools require the exact revision returned by a fresh read. "
+            "For multi-step edits that the user should watch or wait for, call begin_live_edit first, "
+            "update_live_edit as meaningful stages complete, and always call end_live_edit."
         ),
     )
+
+    @server.tool(annotations=CONTROLLED_WRITE)
+    def begin_live_edit(project_id: str, message: str, shot_id: int | None = None) -> dict[str, Any]:
+        """Open a visible frontend wait session before a multi-step MCP edit."""
+        return _write(activity_store.begin, project_id, message, shot_id)
+
+    @server.tool(annotations=CONTROLLED_WRITE)
+    def update_live_edit(
+        session_id: str, message: str, progress_percent: float | None = None,
+    ) -> dict[str, Any]:
+        """Update the message and optional progress shown in the frontend wait modal."""
+        return _write(activity_store.update, session_id, message, progress_percent)
+
+    @server.tool(annotations=CONTROLLED_WRITE)
+    def end_live_edit(session_id: str, message: str = "Changes complete") -> dict[str, Any]:
+        """Close a visible frontend wait session; call this even after a failed edit."""
+        return _write(activity_store.end, session_id, message)
 
     @server.tool(annotations=READ_ONLY)
     def list_projects() -> dict[str, Any]:

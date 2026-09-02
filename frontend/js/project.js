@@ -270,6 +270,27 @@
     applyNormalizedProject(normalizeProjectData(parsed));
   }
 
+  // Applies a canonical project revision written by MCP without emitting
+  // project-loaded: that event intentionally clears shot selection and closes
+  // the camera preview. Live updates instead refresh the same state object and
+  // emit the granular events existing workspaces already observe.
+  function applyLiveProject(parsed) {
+    const normalized = normalizeProjectData(parsed);
+    Object.keys(state).forEach((key) => delete state[key]);
+    Object.assign(state, normalized);
+    markBaseline(JSON.stringify(normalized));
+    const projectId = getProjectId();
+    if (projectId) api.deleteDraft(projectId).catch(() => {});
+    emit('tempo-changed');
+    emit('video-changed');
+    emit('limits-changed');
+    emit('shots-changed', { reason: 'mcp-live' });
+    emit('assets-changed', { reason: 'mcp-live' });
+    emit('scenes-changed', { reason: 'mcp-live' });
+    emit('vocal-cues-changed');
+    emit('project-live-updated');
+  }
+
   // The backend already has a copy of the mix/vocal from whenever they were
   // last picked (see uploadAudioTrackInBackground in main.js), so a loaded
   // or switched-to project can restore playback/the timeline without asking
@@ -324,6 +345,10 @@
     if (dirty === next) return;
     dirty = next;
     emit('project-dirty-changed', { dirty });
+  }
+
+  function isDirty() {
+    return dirty;
   }
 
   function markBaseline(snapshot) {
@@ -523,6 +548,8 @@
     createNewProject,
     openProject,
     listProjects,
+    applyLiveProject,
+    isDirty,
     exportShotsJson,
     exportShotsCsv,
     // Generic client-side text-file download (Blob + object URL), reused by

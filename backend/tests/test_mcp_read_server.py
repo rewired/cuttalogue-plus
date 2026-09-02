@@ -63,6 +63,7 @@ async def main() -> None:
                 "assign_scene", "set_scene_anchor", "bind_camera_target",
                 "assign_asset", "add_constraint", "compile_and_save_prompt",
                 "cancel_job", "start_generation",
+                "begin_live_edit", "update_live_edit", "end_live_edit",
             }
             check(names == expected, "MCP exposes exactly the planned read and Direction write tools")
             tools_by_name = {tool.name: tool for tool in tools.tools}
@@ -97,6 +98,28 @@ async def main() -> None:
             jobs._jobs.pop(running_job.id, None)
             jobs._jobs.pop(job.id, None)
             original_revision = projects.structured_content["projects"][0]["revision"]
+            live_started = await client.call_tool("begin_live_edit", {
+                "project_id": "mcp-project", "shot_id": 1,
+                "message": "Updating the camera plan",
+            })
+            live_session_id = live_started.structured_content["sessionId"]
+            check(
+                not live_started.is_error and live_started.structured_content["active"] is True,
+                "MCP opens a frontend-visible live edit session",
+            )
+            live_updated = await client.call_tool("update_live_edit", {
+                "session_id": live_session_id, "message": "Validating camera motion",
+                "progress_percent": 60,
+            })
+            check(
+                live_updated.structured_content["progressPercent"] == 60,
+                "MCP updates frontend-visible live edit progress",
+            )
+            live_ended = await client.call_tool("end_live_edit", {"session_id": live_session_id})
+            check(
+                live_ended.structured_content["active"] is False,
+                "MCP closes the frontend-visible live edit session",
+            )
             created = await client.call_tool("create_shot", {
                 "project_id": "mcp-project", "expected_revision": original_revision,
                 "start_seconds": 6, "end_seconds": 7, "name": "MCP shot",

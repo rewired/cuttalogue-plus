@@ -19,6 +19,12 @@
     return res.json();
   }
 
+  async function getProjectLive(id) {
+    const res = await fetch(`/api/projects/${id}/live`);
+    if (!res.ok) throw new Error(`get project live state failed: ${res.status}`);
+    return res.json(); // { projectId, revision, activity }
+  }
+
   async function listProjects() {
     const res = await fetch('/api/projects');
     if (!res.ok) throw new Error(`list projects failed: ${res.status}`);
@@ -249,6 +255,7 @@
   MSE.api = {
     createProject,
     getProject,
+    getProjectLive,
     listProjects,
     putProject,
     uploadAssets,

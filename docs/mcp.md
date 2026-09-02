@@ -22,6 +22,20 @@ STDIO is the protocol wire, so the server does not print a startup banner. Logs 
 
 Set CUTTALOGUE_PROJECTS_DIR only when the host should read a non-default project directory.
 
+## Observable frontend edits
+
+The open CUTTAlogue frontend watches the canonical project revision every 750 ms. A successful MCP project mutation is therefore applied to the visible editor without a reload. Shot selection and an open Camera preview are preserved, so Camera segments and path changes can be inspected as they arrive.
+
+Single, quick writes do not need to interrupt the user. For multi-step work where the user should wait, MCP exposes an explicit visible session:
+
+- `begin_live_edit`
+- `update_live_edit`
+- `end_live_edit`
+
+`begin_live_edit` opens the native CUTTAlogue wait modal for one project and optional shot. `update_live_edit` changes its message and optional 0-100 progress. `end_live_edit` closes it. Agents must end sessions after both success and failure. Sessions expire after five minutes without an update so an interrupted MCP client cannot leave the editor locked.
+
+A live session refuses to start when a current browser draft contains unsaved changes. This keeps MCP from silently replacing edits that exist only in the frontend. Direct writes remain revision-guarded as before; if an external revision appears while the browser is dirty, automatic application pauses instead of overwriting local state.
+
 ## Read-only tools
 
 - list_projects
