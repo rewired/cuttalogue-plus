@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
@@ -15,6 +16,7 @@ from .project_repository import ProjectRepository
 
 SCHEMA_VERSION = 1
 STALE_AFTER_SECONDS = 300
+BROWSER_STALE_AFTER_SECONDS = 5
 
 
 class LiveActivityError(ValueError):
@@ -26,6 +28,7 @@ class LiveActivityStore:
         self.projects_root = Path(projects_root)
         self.repository = repository or ProjectRepository(self.projects_root)
         self.path = self.projects_root / ".mcp-live.json"
+        self.browser_path = self.projects_root / ".mcp-browser.json"
 
     @staticmethod
     def idle() -> dict[str, Any]:
@@ -74,6 +77,79 @@ class LiveActivityStore:
         return value
 
     @staticmethod
+    def browser_idle() -> dict[str, Any]:
+        return {
+            "schemaVersion": SCHEMA_VERSION,
+            "connected": False,
+            "projectId": None,
+            "revision": None,
+            "updatedAt": None,
+        }
+
+    def _write_browser(self, value: dict[str, Any]) -> dict[str, Any]:
+        self.projects_root.mkdir(parents=True, exist_ok=True)
+        handle, temporary_name = tempfile.mkstemp(
+            prefix=".mcp-browser-", suffix=".tmp", dir=self.projects_root,
+        )
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                json.dump(value, stream, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_name, self.browser_path)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
+        return value
+
+    def browser_status(self, project_id: str) -> dict[str, Any]:
+        if not self.browser_path.exists():
+            return self.browser_idle()
+        try:
+            value = json.loads(self.browser_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return self.browser_idle()
+        if (
+            not isinstance(value, dict)
+            or value.get("schemaVersion") != SCHEMA_VERSION
+            or value.get("projectId") != project_id
+        ):
+            return self.browser_idle()
+        updated_at = value.get("updatedAt")
+        connected = (
+            isinstance(updated_at, (int, float))
+            and time.time() - updated_at <= BROWSER_STALE_AFTER_SECONDS
+        )
+        return {**self.browser_idle(), **value, "connected": connected}
+
+    def acknowledge_browser(self, project_id: str, revision: str) -> dict[str, Any]:
+        if not isinstance(revision, str) or not revision:
+            raise LiveActivityError("browser revision is required")
+        self.repository.read(project_id)
+        return self._write_browser({
+            "schemaVersion": SCHEMA_VERSION,
+            "connected": True,
+            "projectId": project_id,
+            "revision": revision,
+            "updatedAt": time.time(),
+        })
+
+    async def wait_for_browser_revision(
+        self, session_id: str, timeout_seconds: float = 10,
+    ) -> dict[str, Any]:
+        current = self._require_session(session_id)
+        timeout = max(0.1, min(float(timeout_seconds), 30))
+        deadline = time.monotonic() + timeout
+        while True:
+            revision = self.repository.read(current["projectId"])["revision"]
+            browser = self.browser_status(current["projectId"])
+            if browser["connected"] and browser["revision"] == revision:
+                return {"sessionId": session_id, "revision": revision, "browser": browser}
+            if time.monotonic() >= deadline:
+                raise LiveActivityError("the frontend did not acknowledge the current project revision")
+            await asyncio.sleep(0.1)
+
+    @staticmethod
     def _message(value: str) -> str:
         message = str(value or "").strip()
         if not message:
@@ -104,6 +180,11 @@ class LiveActivityStore:
         if current["active"]:
             raise LiveActivityError("another MCP live edit session is already active")
         record = self.repository.read(project_id)
+        browser = self.browser_status(project_id)
+        if not browser["connected"] or browser["revision"] != record["revision"]:
+            raise LiveActivityError(
+                "no current frontend handshake; open or refresh the project before starting a live edit"
+            )
         self._assert_clean_browser_draft(project_id, record["project"])
         if shot_id is not None and not any(
             shot.get("id") == shot_id for shot in record["project"].get("shots", [])

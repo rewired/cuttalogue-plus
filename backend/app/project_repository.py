@@ -117,6 +117,12 @@ class ProjectRepository:
             current = self.read(project_id)
             if current["revision"] != expected_revision:
                 raise RevisionConflictError(expected_revision, current["revision"])
+            timestamp_ms = int(time.time() * 1000)
+            previous_saved_at = project.get("savedAt")
+            if isinstance(previous_saved_at, (int, float)) and not isinstance(previous_saved_at, bool):
+                if timestamp_ms <= previous_saved_at:
+                    timestamp_ms = int(previous_saved_at) + 1
+            project["savedAt"] = timestamp_ms
             try:
                 encoded = json.dumps(project, indent=2, ensure_ascii=False, allow_nan=False).encode("utf-8")
             except (TypeError, ValueError) as error:

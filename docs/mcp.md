@@ -36,6 +36,10 @@ Single, quick writes do not need to interrupt the user. For multi-step work wher
 
 A live session refuses to start when a current browser draft contains unsaved changes. This keeps MCP from silently replacing edits that exist only in the frontend. Direct writes remain revision-guarded as before; if an external revision appears while the browser is dirty, automatic application pauses instead of overwriting local state.
 
+The frontend now acknowledges its visible SHA-256 revision on every live poll. `begin_live_edit` requires a fresh acknowledgement of the canonical starting revision, and `wait_for_live_edit` blocks until the browser acknowledges the final revision. This prevents an agent from reporting success to an outdated or disconnected tab. The first poll always loads canonical state instead of treating an unknown revision as a baseline.
+
+Revisioned project writes advance `savedAt`, so a draft based on the pre-MCP project is unambiguously stale. During an active modal session, `begin_live_edit` has already verified that the browser draft is clean and the overlay blocks user interaction; the frontend can therefore resolve a draft-autosave race by applying the canonical MCP revision safely.
+
 ## Read-only tools
 
 - list_projects
@@ -62,6 +66,7 @@ Every project result includes a SHA-256 content revision where applicable. Proje
 - remove_camera_segment
 - add_subject_segment
 - import_asset
+- wait_for_live_edit
 - assign_scene
 - set_scene_anchor
 - bind_camera_target

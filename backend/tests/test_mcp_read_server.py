@@ -9,7 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mcp import Client  # noqa: E402
 from app import generation_service as generation_module, jobs  # noqa: E402
+from app.live_activity import LiveActivityStore  # noqa: E402
 from app.mcp_server import create_mcp_server  # noqa: E402
+from app.project_repository import ProjectRepository  # noqa: E402
 
 failures = 0
 
@@ -41,6 +43,10 @@ async def main() -> None:
         }), encoding="utf-8")
         source_asset = root / "source.png"
         source_asset.write_bytes(b"not-a-real-png")
+        repository = ProjectRepository(root)
+        LiveActivityStore(root, repository).acknowledge_browser(
+            "mcp-project", repository.read("mcp-project")["revision"],
+        )
 
         generation_calls = []
 
@@ -66,7 +72,7 @@ async def main() -> None:
                 "assign_scene", "set_scene_anchor", "bind_camera_target",
                 "assign_asset", "add_constraint", "compile_and_save_prompt",
                 "cancel_job", "start_generation",
-                "begin_live_edit", "update_live_edit", "end_live_edit",
+                "begin_live_edit", "update_live_edit", "wait_for_live_edit", "end_live_edit",
             }
             check(names == expected, "MCP exposes exactly the planned read and Direction write tools")
             tools_by_name = {tool.name: tool for tool in tools.tools}
@@ -122,6 +128,14 @@ async def main() -> None:
             check(
                 live_updated.structured_content["progressPercent"] == 60,
                 "MCP updates frontend-visible live edit progress",
+            )
+            live_confirmed = await client.call_tool("wait_for_live_edit", {
+                "session_id": live_session_id, "timeout_seconds": 0.2,
+            })
+            check(
+                not live_confirmed.is_error
+                and live_confirmed.structured_content["revision"] == original_revision,
+                "MCP waits for the browser to acknowledge the current revision",
             )
             live_ended = await client.call_tool("end_live_edit", {"session_id": live_session_id})
             check(
