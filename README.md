@@ -83,8 +83,8 @@ In the **Tempo** panel:
 
 In the **Video** panel:
 
-- **FPS** of the target video (the project's own timeline fps - independent of MiniMax H3's own internal 24fps, see [Setup](#setup)).
-- **Frame rule**: free, `4n+1`, or `8n+1` - used for the shot table/export's render-length math, not H3 generation itself.
+- **FPS** of the target video (new projects default to 24 fps, matching MiniMax H3's internal rate; existing editorial rates remain readable).
+- **H3 frame rule** is fixed to `17n+5` (`frameCount % 17 == 5`). The shot table and project export always round upward to the next legal count; older `free`, `4n+1`, or `8n+1` project values are migrated in memory and cannot drive a render.
 
 In the **Shot length** panel:
 
@@ -230,7 +230,7 @@ With nothing configured, the rest of the app behaves exactly as before. Once con
 - **API key** - stored, but not wired into any request yet. RunPod's HTTP proxy has no authentication of its own; how to secure it (a basic-auth sidecar, an SSH tunnel, or something else) is still an open decision.
 - **Test connection**: checks that the Pod responds to `GET {base URL}/system_stats`.
 
-The workflow actually submitted (`backend/app/workflows/R2V_H3_V1.json`, substituted per-request by `backend/app/comfy_workflow_template.py`) is the real MiniMax H3 "Reference to Video" ComfyUI graph - it takes the compiled prompt plus every reference image assigned to the shot and generates a clip through the model directly, not a placeholder. H3 has its own fixed frame-count grid (`n % 17 == 5`, always at an internal 24fps, independent of the project's own timeline fps above) - `backend/app/frames.py`'s `h3_frame_count` computes it server-side from the shot's duration rather than trusting the client.
+The workflow actually submitted (`backend/app/workflows/R2V_H3_V1.json`, substituted per-request by `backend/app/comfy_workflow_template.py`) is the real MiniMax H3 "Reference to Video" ComfyUI graph - it takes the compiled prompt plus every reference image assigned to the shot and generates a clip through the model directly, not a placeholder. H3 has one fixed frame-count grid (`n % 17 == 5`, always at an internal 24fps) - shared frontend/backend frame math and `backend/app/frames.py`'s `h3_frame_count` round upward from the shot duration instead of trusting client-supplied or legacy project rules.
 
 ---
 

@@ -10,10 +10,8 @@
 
   const PROJECT_ID_STORAGE_KEY = 'cuttalogue.projectId';
 
-  function frameRuleLabel(stride) {
-    if (stride === 4) return '4n+1';
-    if (stride === 8) return '8n+1';
-    return 'free';
+  function frameRuleLabel() {
+    return '17n+5';
   }
 
   function triggerDownload(filename, content, mimeType) {
@@ -181,6 +179,15 @@
   function normalizeProjectData(parsed) {
     const normalized = { ...parsed };
     normalized.name = normalized.name || '';
+    const sourceVideo = normalized.video && typeof normalized.video === 'object' ? normalized.video : {};
+    normalized.video = {
+      ...sourceVideo,
+      fpsNumerator: Number.isFinite(sourceVideo.fpsNumerator) && sourceVideo.fpsNumerator > 0 ? sourceVideo.fpsNumerator : 24,
+      fpsDenominator: Number.isFinite(sourceVideo.fpsDenominator) && sourceVideo.fpsDenominator > 0
+        ? sourceVideo.fpsDenominator
+        : 1,
+      frameRule: { stride: 17, offset: 5 },
+    };
     normalized.shots = (normalized.shots || []).map((s) => ({
       name: '',
       prompt: '',
@@ -576,7 +583,10 @@
         durationSeconds: duration,
         cutFrames: calc.cutFrames,
         renderFrames: calc.renderFrames,
+        renderFps: calc.renderFps,
+        renderDurationSeconds: calc.renderFrames / calc.renderFps,
         overhangFrames: calc.overhangFrames,
+        overhangSeconds: calc.overhangSeconds,
       };
     });
   }
@@ -584,14 +594,15 @@
   function exportShotsJson() {
     const payload = {
       fps: state.video.fpsNumerator / state.video.fpsDenominator,
-      frameRule: frameRuleLabel(state.video.frameRule?.stride ?? null),
+      frameRule: frameRuleLabel(),
+      renderFps: MSE.frames.H3_FPS,
       shots: buildShotExportList(),
     };
     triggerDownload('shots.json', JSON.stringify(payload, null, 2), 'application/json');
   }
 
   function exportShotsCsv() {
-    const rows = ['shot,start,end,duration,cut_frames,render_frames,overhang_frames'];
+    const rows = ['shot,start,end,duration,cut_frames,render_fps,render_frames,render_duration,overhang_frames,overhang_seconds'];
     buildShotExportList().forEach((s) => {
       rows.push(
         [
@@ -600,8 +611,11 @@
           s.endSeconds.toFixed(3),
           s.durationSeconds.toFixed(3),
           s.cutFrames,
+          s.renderFps,
           s.renderFrames,
+          s.renderDurationSeconds.toFixed(3),
           s.overhangFrames,
+          s.overhangSeconds.toFixed(3),
         ].join(',')
       );
     });

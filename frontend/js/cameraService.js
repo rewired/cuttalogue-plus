@@ -74,7 +74,7 @@
       durationSeconds: plan.durationSeconds,
       frameRate: { numerator, denominator, fps },
       outputFraming: {
-        frameRule: video.frameRule || { stride: null, offset: 1 },
+        frameRule: video.frameRule || { stride: 17, offset: 5 },
       },
       interpreterProfile: (shot.preview && shot.preview.interpreterProfile) || 'cinematic-v1',
       authoritativeSource: 'shot.direction.camera',

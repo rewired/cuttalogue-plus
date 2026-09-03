@@ -9,7 +9,7 @@ The editor displays two audio files in sync:
 - **A: Mix**
 - **B: Vocal stem**
 
-Shot ranges are placed manually on a shared timeline and locked to a musical grid. For every shot, the editor also calculates the required H3 render length, respecting a valid frame rule such as `4n+1` or `8n+1`.
+Shot ranges are placed manually on a shared timeline and locked to a musical grid. For every shot, the editor calculates the required MiniMax H3 render length on the fixed `17n+5` lattice.
 
 For now the editor is a standalone web app with no ComfyUI integration.
 
@@ -283,79 +283,53 @@ The warning is visual but doesn't necessarily block editing.
 
 ---
 
-## FPS and H3 frame rules
+## Editorial FPS and the H3 frame rule
 
-### Why FPS is required
+### Two clocks
 
-FPS is needed to turn the planned shot duration into a concrete frame count for H3.
+The project FPS converts an editorial shot boundary into cut frames. MiniMax H3 render timing is always evaluated at 24 fps, independently of an older project's editorial rate.
 
 Example:
 
 ```text
-Shot duration: 10.0 s
-FPS:           25
-Frames:        250
+Shot duration:        10.0 s
+Project FPS:          25
+Editorial cut frames: 250
+H3 desired frames:    240
 ```
 
-### Supported frame rules
+### One supported render lattice
 
-- free
-- `4n+1`
-- `8n+1`
-
-Examples:
+H3 render frame counts must satisfy:
 
 ```text
-4n+1:
-1, 5, 9, 13, 17, ...
-
-8n+1:
-1, 9, 17, 25, 33, ...
+frameCount % 17 == 5
+legal counts: 5, 22, 39, 56, ...
 ```
 
-### Calculating the desired frame count
+There is no `free`, `4n+1`, or `8n+1` render option. Legacy values are normalized to `{ stride: 17, offset: 5 }` when a project is loaded and are ignored by backend render planning.
+
+### Calculating the render length
 
 ```text
-desiredFrames = ceil(shotDuration × FPS)
+editorialCutFrames = ceil(shotDuration × projectFPS)
+h3DesiredFrames    = ceil(shotDuration × 24)
+renderFrames       = h3DesiredFrames + ((5 - (h3DesiredFrames % 17) + 17) % 17)
+renderDuration     = renderFrames / 24
+overhangFrames     = renderFrames - h3DesiredFrames
+overhangSeconds    = renderDuration - shotDuration
 ```
 
-### Next valid render length
+The upward alignment is deliberate: a render must never finish before the editorial cut.
 
-For a general rule with `stride`:
-
-```text
-renderFrames =
-ceil((desiredFrames - 1) / stride) × stride + 1
-```
-
-Where:
+Example at 25 editorial FPS and a 10-second shot:
 
 ```text
-stride = 4  → 4n+1
-stride = 8  → 8n+1
-```
-
-### Overhang
-
-```text
-overhangFrames  = renderFrames - desiredFrames
-overhangSeconds = overhangFrames / FPS
-```
-
-Example at 25 FPS and 10 seconds:
-
-```text
-Desired frames: 250
-
-4n+1:
-Render frames:   253
-Overhang:          3 frames
-Overhang time:     0.12 s
-
-8n+1:
-Render frames:   257
-Overhang:          7 frames
-Overhang time:     0.28 s
+Editorial cut frames: 250
+H3 desired frames:    240
+H3 render frames:     243
+H3 render duration:   10.125 s
+Overhang:               3 H3 frames / 0.125 s
 ```
 
 ### Per-shot display
@@ -363,10 +337,10 @@ Overhang time:     0.28 s
 ```text
 SHOT 04
 
-Cut length:      10.000 s
-Cut frames:      250
-H3 render frames: 257
-Overhang:          7 frames / 0.280 s
+Cut length:         10.000 s
+Cut frames:         250 @ 25 fps
+H3 render frames:   243 @ 24 fps
+Overhang:             3 frames / 0.125 s
 ```
 
 ---
@@ -530,7 +504,7 @@ When reopening, the mix and vocal may need to be reselected.
 ```json
 {
   "fps": 25,
-  "frameRule": "8n+1",
+  "frameRule": "17n+5",
   "shots": [
     {
       "shot": 1,
@@ -538,8 +512,10 @@ When reopening, the mix and vocal may need to be reselected.
       "endSeconds": 9.64,
       "durationSeconds": 9.64,
       "cutFrames": 241,
-      "renderFrames": 241,
-      "overhangFrames": 0
+      "renderFps": 24,
+      "renderFrames": 243,
+      "renderDurationSeconds": 10.125,
+      "overhangFrames": 11
     }
   ]
 }
@@ -657,7 +633,7 @@ WaveSurfer Multitrack
 + musical grid incl. second/frame grid
 + manual shot planning with gaps, deletion, Alt snap override
 + FPS
-+ 4n+1 / 8n+1
++ fixed MiniMax H3 17n+5 render lattice
 + H3 overhang
 + JSON/CSV export
 ```

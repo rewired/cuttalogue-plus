@@ -55,7 +55,7 @@ async def export_project(project_id: str, options: dict = Body(default={})):
 
     assets_by_id = {a["id"]: a for a in data.get("assets", [])}
     video = data["video"]
-    frame_rule_label = frames.frame_rule_label((video.get("frameRule") or {}).get("stride"))
+    frame_rule_label = frames.frame_rule_label()
     fps_value = frames.fps(video)
     shot_count = len(shots)
 
@@ -100,7 +100,7 @@ async def export_project(project_id: str, options: dict = Body(default={})):
 
                 cut_duration = shot["endSeconds"] - shot["startSeconds"]
                 calc = frames.frame_calc(cut_duration, video)
-                render_duration = calc["renderFrames"] / fps_value
+                render_duration = calc["renderFrames"] / calc["renderFps"]
                 base_progress = index / shot_count
 
                 async def on_progress(fraction: float) -> None:
@@ -183,6 +183,7 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                     "cutDurationSeconds": cut_duration,
                     "fps": fps_value,
                     "cutFrames": calc["cutFrames"],
+                    "renderFps": calc["renderFps"],
                     "frameRule": frame_rule_label,
                     "renderFrames": calc["renderFrames"],
                     "renderDurationSeconds": render_duration,
