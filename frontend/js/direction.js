@@ -399,7 +399,7 @@
     return seg.notes || 'Action';
   }
 
-  // H3 always renders a valid stride length (4n+1/8n+1), which is usually a
+  // H3 always renders a valid 17n+5 length, which is usually a
   // few frames longer than the shot's actual cut point - that trailing pad
   // gets trimmed after render, but H3 still has to generate *something* for
   // it despite nothing in the prompt describing it. Marking it here (instead

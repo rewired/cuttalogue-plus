@@ -36,7 +36,7 @@
       video: {
         fpsNumerator: 24,
         fpsDenominator: 1,
-        frameRule: { stride: 8, offset: 1 }, // stride: null (free) | 4 | 8
+        frameRule: { stride: 17, offset: 5 }, // MiniMax H3: frameCount % 17 === 5
       },
       shotLimits: {
         minimumSeconds: 8,

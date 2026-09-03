@@ -177,10 +177,10 @@ async def start_generation_job(data: dict, directory: Path, shot: dict, body: di
             raise GenerationStartError(f"reference asset file is missing: {asset_id}")
         reference_paths.append(path)
 
-    # H3's own frame-count grid (see frames.h3_frame_count) - fixed to the
-    # model itself, not the project's configurable frameRule/fps (that's a
-    # separate axis used by the shot table/export, see export.py). Computed
-    # server-side rather than trusted from the client, same reasoning as
+    # H3's frame-count grid (see frames.h3_frame_count) is the same fixed
+    # 17n+5 contract shown by the shot table and used by export.py. Generation
+    # computes it independently at H3's 24 fps rather than trusting project
+    # metadata supplied by a client, matching export.py's safety boundary and
     # export.py's own comment on this. The lip-sync reference audio must
     # cover this same render duration (which can run slightly past the
     # editorial cut via frame-grid overhang), not just the cut itself - see
