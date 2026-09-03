@@ -34,6 +34,12 @@ const requiredIds = [
   'camera-preview-calibrate-btn',
   'scene-calibration-panel',
   'camera-preview-export-btn',
+  'camera-preview-mood-btn',
+  'camera-preview-mood-panel',
+  'camera-preview-mood-opacity',
+  'camera-preview-mood-billboard',
+  'camera-preview-reset-view-btn',
+  'camera-preview-free-help',
 ];
 requiredIds.forEach((id) => assert(html.includes(`id="${id}"`), `preview markup contains #${id}`));
 
@@ -67,6 +73,12 @@ assert(renderer.includes("MSE.cameraPath.evaluate"), 'renderer samples the canon
 assert(renderer.includes('setSceneGeometry'), 'renderer accepts parsed scene geometry');
 assert(renderer.includes('gl.POINTS'), 'renderer draws point-cloud scene previews');
 assert(renderer.includes('setAnchors'), 'renderer accepts calibrated scene anchors');
+assert(renderer.includes('orbitFreeView') && renderer.includes('zoomFreeView'), 'free view exposes orbit and zoom controls');
+assert(renderer.includes('cameraFrustumVertices') && renderer.includes('frustumBuffer'), 'free view renders the active shot camera frustum');
+assert(renderer.includes('TEXTURE_FRAGMENT_SHADER') && renderer.includes('drawMoodCard'), 'renderer draws the environment image as a translucent 3D card');
+assert(controller.includes("assetRoles[id] === 'environment'"), 'mood card automatically follows the shot environment role');
+assert(controller.includes("reason: 'mood-card'"), 'mood-card transforms persist through project change tracking');
+assert(controller.includes('Shift+drag') || html.includes('Shift+drag'), 'free-view interaction guidance is visible');
 assert(html.includes('js/sceneCalibrationPanel.js'), 'native scene calibration editor is loaded');
 assert(calibrationPanel.includes('updateSceneCalibration') && calibrationPanel.includes('upsertAnchor'), 'calibration editor writes through the scene model');
 assert(controller.includes('Unresolved target:'), 'preview diagnostics name unresolved camera targets');

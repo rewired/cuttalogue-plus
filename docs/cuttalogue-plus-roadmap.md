@@ -28,7 +28,7 @@ MCP exposes the same domain operations used by the browser UI. It must never bec
 
 - Phase 0 is complete: the fork, baseline tag, integration branch, and this roadmap exist.
 - Phase 1 is complete for the initial deterministic camera vocabulary and regression coverage.
-- Phase 2 has an initial native CUTTAlogue WebGL workspace with shared transport and explicit resource disposal.
+- Phase 2 is substantially implemented: the native CUTTAlogue WebGL workspace has shared transport, an orbitable and pannable Free View, an animated Shot Camera frustum, automatic translucent environment-image mood cards, and explicit GPU resource disposal. Direct viewport manipulation of scene anchors remains open.
 - Phase 3 is substantially implemented: PLY/SPLAT/GLB ingestion, reusable scene persistence, backwards-compatible normalization, per-shot scene assignment, scene-default camera and motion calibration, named anchors, per-shot target bindings, concrete unresolved-target diagnostics, and initial geometry rendering are implemented. SPLAT currently uses a point-sprite preview; a full anisotropic Gaussian rasterizer and direct viewport manipulation of calibration points remain open.
 - Phase 4 has started: preview compilation and deterministic, versioned Camera JSON export now share one application-service boundary. Broader authoring synchronization remains open.
 - Phase 5 is substantially implemented: canonical reads and atomic, revision-guarded writes pass through path-confined repositories and transport-neutral services. Camera evaluation and canonical H3 prompt compilation have shared backend/HTTP coverage; migrating the legacy whole-project browser save remains open.
@@ -277,13 +277,15 @@ Acceptance:
 
 ### Phase 2 — Embedded renderer
 
-Deliver a lifecycle-managed renderer, expanded Preview workspace, Shot/Free views, path and frustum overlays, and cleanup on close or project switch.
+Deliver a lifecycle-managed renderer, expanded Preview workspace, Shot/Free views, path and frustum overlays, a preview-only environment-image mood card, and cleanup on close or project switch.
 
 Acceptance:
 
 - repeated opening creates no duplicate animation loops or listeners;
 - project switching releases obsolete GPU resources;
 - preview follows the selected shot;
+- Free View supports mouse orbit, Shift-drag pan, wheel zoom, and a visible animated Shot Camera frustum;
+- a shot's environment image can appear as a configurable translucent 3D mood card without affecting prompts or generation;
 - all surrounding controls use CUTTAlogue's visual system;
 - no standalone Shot Visualizer palette, branding, or app chrome remains.
 
