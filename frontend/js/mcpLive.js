@@ -42,24 +42,12 @@
     elements.overlay.hidden = false;
   }
 
-  function renderDirtyConflict() {
-    if (!elements.overlay) return;
-    elements.title.textContent = 'Live update paused';
-    elements.scope.textContent = 'Unsaved browser edits';
-    elements.message.textContent = 'Save your current edits before MCP continues. They will not be overwritten.';
-    elements.progress.hidden = true;
-    elements.overlay.hidden = false;
-  }
-
-  async function applyRevision(projectId, revision, allowDirtyDuringActiveSession = false) {
-    if (MSE.project.isDirty() && !allowDirtyDuringActiveSession) {
-      renderDirtyConflict();
-      return false;
-    }
-    const project = await MSE.api.getProject(projectId);
+  async function applyRevision(projectId) {
+    if (MSE.project.isDirty()) return false;
+    const record = await MSE.api.getProjectRecord(projectId);
     if (MSE.project.getProjectId() !== projectId) return false;
-    MSE.project.applyLiveProject(project);
-    observedRevision = revision;
+    MSE.project.applyLiveProject(record.project, record.revision);
+    observedRevision = record.revision;
     return true;
   }
 
@@ -81,15 +69,11 @@
       loggedConnectionError = false;
       renderActivity(live.activity);
       if (observedRevision === null || live.revision !== observedRevision) {
-        // begin_live_edit verifies the browser draft is clean before the modal
-        // blocks interaction. A draft-poll race during that active session is
-        // therefore safe to replace with the canonical MCP revision.
-        const allowDirty = Boolean(live.activity && live.activity.active);
-        const applied = await applyRevision(projectId, live.revision, allowDirty);
+        const applied = await applyRevision(projectId);
         if (!applied) return;
       }
       if (observedRevision) {
-        await MSE.api.acknowledgeProjectLive(projectId, observedRevision);
+        await MSE.api.acknowledgeProjectLive(projectId, observedRevision, MSE.project.isSynced());
       }
     } catch (error) {
       if (!loggedConnectionError) {

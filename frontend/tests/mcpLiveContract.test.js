@@ -34,11 +34,11 @@ assert(apiIndex >= 0 && projectIndex > apiIndex && liveIndex > projectIndex && m
 assert(api.includes('/api/projects/${id}/live'), 'frontend API reads the project live-state endpoint');
 assert(api.includes('/api/projects/${id}/live/ack'), 'frontend API acknowledges the revision visible in the browser');
 assert(live.includes('POLL_INTERVAL_MS = 750'), 'live revisions are observed with a sub-second polling interval');
-assert(live.includes('MSE.project.isDirty()'), 'live updates guard unsaved browser state');
-assert(live.includes('MSE.project.applyLiveProject(project)'), 'revision changes apply through the dedicated live project path');
+assert(live.includes('MSE.project.isDirty()'), 'live updates wait for pending canonical autosave state');
+assert(live.includes('MSE.project.applyLiveProject(record.project, record.revision)'), 'revision changes apply through the dedicated revision-aware live project path');
 assert(live.includes('observedRevision === null || live.revision !== observedRevision'), 'the first live poll loads canonical state instead of accepting an unknown baseline');
-assert(live.includes('acknowledgeProjectLive(projectId, observedRevision)'), 'each visible revision is acknowledged to the backend');
-assert(live.includes('live.activity && live.activity.active'), 'a verified modal session resolves draft-poll races while interaction is blocked');
+assert(live.includes('acknowledgeProjectLive(projectId, observedRevision, MSE.project.isSynced())'), 'each visible revision reports whether canonical autosave is fully settled');
+assert(!live.includes('renderDirtyConflict'), 'live updates never ask the user for a manual save');
 assert(live.includes('activity.progressPercent'), 'agent progress is rendered in the wait modal');
 
 const liveApply = project.slice(project.indexOf('function applyLiveProject'), project.indexOf('function autoLoadAudioFromBackend'));

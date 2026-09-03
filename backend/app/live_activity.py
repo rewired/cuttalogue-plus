@@ -17,6 +17,7 @@ from .project_repository import ProjectRepository
 SCHEMA_VERSION = 1
 STALE_AFTER_SECONDS = 300
 BROWSER_STALE_AFTER_SECONDS = 5
+BROWSER_SYNC_WAIT_SECONDS = 5
 
 
 class LiveActivityError(ValueError):
@@ -83,6 +84,7 @@ class LiveActivityStore:
             "connected": False,
             "projectId": None,
             "revision": None,
+            "ready": False,
             "updatedAt": None,
         }
 
@@ -122,15 +124,18 @@ class LiveActivityStore:
         )
         return {**self.browser_idle(), **value, "connected": connected}
 
-    def acknowledge_browser(self, project_id: str, revision: str) -> dict[str, Any]:
+    def acknowledge_browser(self, project_id: str, revision: str, ready: bool = True) -> dict[str, Any]:
         if not isinstance(revision, str) or not revision:
             raise LiveActivityError("browser revision is required")
+        if not isinstance(ready, bool):
+            raise LiveActivityError("browser ready state must be a boolean")
         self.repository.read(project_id)
         return self._write_browser({
             "schemaVersion": SCHEMA_VERSION,
             "connected": True,
             "projectId": project_id,
             "revision": revision,
+            "ready": ready,
             "updatedAt": time.time(),
         })
 
@@ -143,7 +148,7 @@ class LiveActivityStore:
         while True:
             revision = self.repository.read(current["projectId"])["revision"]
             browser = self.browser_status(current["projectId"])
-            if browser["connected"] and browser["revision"] == revision:
+            if browser["connected"] and browser["ready"] and browser["revision"] == revision:
                 return {"sessionId": session_id, "revision": revision, "browser": browser}
             if time.monotonic() >= deadline:
                 raise LiveActivityError("the frontend did not acknowledge the current project revision")
@@ -158,34 +163,29 @@ class LiveActivityStore:
             raise LiveActivityError("live edit messages are limited to 240 characters")
         return message
 
-    def _assert_clean_browser_draft(self, project_id: str, project: dict[str, Any]) -> None:
-        draft_path = self.projects_root / project_id / "project.draft.json"
-        if not draft_path.exists():
-            return
-        try:
-            draft = json.loads(draft_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            return
-        if (
-            isinstance(draft, dict)
-            and draft.get("basedOnSavedAt") == project.get("savedAt")
-            and draft.get("data") != project
-        ):
+    def _wait_for_browser_sync(self, project_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        browser = self.browser_status(project_id)
+        if not browser["connected"]:
             raise LiveActivityError(
-                "the frontend has unsaved edits; ask the user to save them before starting a live edit"
+                "no current frontend handshake; open or refresh the project before starting a live edit"
             )
+        deadline = time.monotonic() + BROWSER_SYNC_WAIT_SECONDS
+        while True:
+            record = self.repository.read(project_id)
+            browser = self.browser_status(project_id)
+            if browser["connected"] and browser["ready"] and browser["revision"] == record["revision"]:
+                return record, browser
+            if time.monotonic() >= deadline:
+                raise LiveActivityError(
+                    "the frontend autosave did not settle; wait briefly and retry the live edit"
+                )
+            time.sleep(0.05)
 
     def begin(self, project_id: str, message: str, shot_id: int | None = None) -> dict[str, Any]:
         current = self.read()
         if current["active"]:
             raise LiveActivityError("another MCP live edit session is already active")
-        record = self.repository.read(project_id)
-        browser = self.browser_status(project_id)
-        if not browser["connected"] or browser["revision"] != record["revision"]:
-            raise LiveActivityError(
-                "no current frontend handshake; open or refresh the project before starting a live edit"
-            )
-        self._assert_clean_browser_draft(project_id, record["project"])
+        record, browser = self._wait_for_browser_sync(project_id)
         if shot_id is not None and not any(
             shot.get("id") == shot_id for shot in record["project"].get("shots", [])
         ):

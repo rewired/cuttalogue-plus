@@ -240,6 +240,7 @@
         const assetRef = MSE.assets.findAsset(asset.id);
         let firstDelta = true;
         try {
+          await MSE.project.saveProjectToBackend();
           const { jobId } = await MSE.api.describeAsset(projectId, asset.id);
           await MSE.api.watchJob(jobId, (event) => {
             if (event.delta) {

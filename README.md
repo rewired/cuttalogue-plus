@@ -114,12 +114,12 @@ Each shot's row in the table below shows: start, end, duration, status (too shor
 
 ## Saving, naming & switching projects
 
-Save, export, and project-switching controls all live in the **☰** menu (top left of the header).
+Export, immediate-save, and project-switching controls live in the top-left menu. Normal editing does not require a save action.
 
-- The text field in the header is the project's **name** - type into it and hit **"Save project"** to persist it (same as tempo/shots, not saved until you click Save).
-- **"Save project"** (or **Ctrl+S** anywhere): writes tempo, video, shot settings, all shots (including their Direction data), and asset metadata to the project folder on disk via the backend, with a brief confirmation toast. The audio files themselves are **not** saved - when reloading the project, the mix and vocal may need to be reselected. If a browser tab has unsaved edits when a project is (re)loaded, a prompt offers to restore or discard them (see the draft-autosave note in [Backend](#backend)).
+- The text field in the header is the project's **name**. Names, tempo, video settings, shots, Direction data, prompts, notes, and asset metadata are canonically autosaved after a short quiet period. The header reports **Saving…**, **Saved**, or a retry state.
+- **"Save now"** (or **Ctrl+S** anywhere) only flushes that same autosave queue immediately. It does not create a second manual-save state. Writes are atomic and revision guarded, so browser and MCP changes cannot silently overwrite one another.
 - **"Projects ▾"** opens a list of every project on the backend (name, shot count, last saved) - click one to switch to it, or **"+ New project"** to start a blank one. The browser remembers whichever project it last opened and reloads it automatically on the next page visit.
-- **"Export shots (JSON / CSV)"**: exports just the shot list with calculated frame counts, e.g. for further use in H3 or an editing tool. Still a plain client-side download, unrelated to the project save above.
+- **"Export shots (JSON / CSV)"** exports just the shot list with calculated frame counts, e.g. for further use in H3 or an editing tool. It remains a plain client-side download.
 
 ---
 
@@ -130,7 +130,7 @@ The top-level **Assets** tab (next to **Shots**, above the timeline) is the proj
 - **"Add files"** imports images, videos, or audio - each gets copied into the project folder, probed with FFprobe (duration, dimensions, fps, codec, sample rate, channels), and given a thumbnail (images/video only).
 - Every asset gets a **kind** right on its card - Location / Character / Prop for images, Full mix / Lip-sync for audio, Motion guide for video - fixed for that asset everywhere in the project (a person can't be a character in one shot and a location in the next). An asset must be classified before it can be assigned to a shot.
 - Selecting a card opens the detail panel on the right with its tags (comma-separated; the filter box above the grid matches on tags) and, for images, a description field plus a **"Describe image"** button (see [Setup](#setup) below).
-- Tags, kind, and descriptions live in the same project state as prompt/notes, so they only become durable once you hit **"Save project"**; imported files themselves land on disk immediately.
+- Tags, kind, and descriptions live in the same canonically autosaved project state as prompts and notes; imported files themselves land on disk immediately.
 
 Assigning an asset to a specific shot happens per-shot instead, in that shot's **Cast & Locations** tab (see below) - the library has no concept of "the selected shot". A generated take can also be promoted straight into this same pool (see **Generate**, below) - once promoted, it behaves like any imported file, including being usable as a reference image/video for other shots.
 
@@ -208,7 +208,7 @@ Generating always adds a new take, even re-running with the same prompt. A video
 
 **Whole project** - the **☰** menu has an **"Export project"** button (plus an **"Include mix snippet"** checkbox). It builds the full per-shot export package from the product doc: `export/shot-XXX/` folders, each with `lip_sync.flac`, `shot.json` (the render manifest - frame counts, frame rule, assigned asset paths), `prompt.txt`, `notes.md`, copied assigned assets, and optionally `mix.flac`. A floating task panel (bottom-right) tracks aggregate progress ("Shot 12 of 37") with a **Cancel** button; cancelling stops between shots (and mid-encode on the current one) without leaving a corrupted or partially-written shot folder behind.
 
-Both need a vocal track already loaded (see above), and the mix track too if "Include mix snippet" is checked; the project must have been saved at least once since.
+Both need a vocal track already loaded (see above), and the mix track too if "Include mix snippet" is checked; export automatically flushes pending autosave changes first.
 
 ---
 
@@ -222,7 +222,7 @@ The **"Setup"** button in the **☰** menu opens an application-wide connection 
 - **Default model**: used whenever a per-image request doesn't override it.
 - **Test connection**: a quick round trip (`GET {base URL}/models`, then a tiny real completion if a default model is set) to confirm the key/URL/model work before relying on them.
 
-With nothing configured, the rest of the app behaves exactly as before. Once configured, each **image** asset's card in the Assets tab gets a **Description** field plus a **"Describe image"** button (with an optional per-request model override). Clicking it sends that one image to the configured provider and streams the response straight into the description field as it arrives - one explicit action per image, never automatic or batched. Like export, this needs the project to have been saved at least once since the image was imported (asset import copies the file to disk right away, but it only becomes part of `project.json` - and therefore visible to the backend - once "Save project" runs). The same provider also powers the Direction tab's **"Expand with AI"**.
+With nothing configured, the rest of the app behaves exactly as before. Once configured, each **image** asset's card in the Assets tab gets a **Description** field plus a **"Describe image"** button (with an optional per-request model override). Clicking it sends that one image to the configured provider and streams the response straight into the description field as it arrives - one explicit action per image, never automatic or batched. Describe automatically flushes pending autosave changes so a newly imported asset is visible to the backend. The same provider also powers the Direction tab's **"Expand with AI"**.
 
 **ComfyUI (Pod)** (per-shot video generation, see the **Generate** tab described above):
 
@@ -241,7 +241,7 @@ A minimal FastAPI backend (`backend/`) replaces the old "download a JSON file" s
 - `POST /api/projects` creates a new project folder + `project.json`. `GET /api/projects` lists every project (id, name, shot count, last-saved time) for the **Projects** picker.
 - `GET /api/projects/{id}` / `PUT /api/projects/{id}` read/write it.
 - `PUT` runs as a job (`GET /api/jobs/{jobId}` + `/events` for SSE progress) - the same job/SSE shape export, AI description, prompt expansion, and generation all reuse.
-- `POST /api/projects/{id}/assets` imports one or more files into that project's `assets/` folder and returns their metadata/thumbnail descriptors (no project.json write - that's still "Save project").
+- `POST /api/projects/{id}/assets` imports one or more files into that project's `assets/` folder and returns their metadata/thumbnail descriptors; the frontend then canonically autosaves those descriptors into `project.json`.
 - `POST /api/projects/{id}/shots/{shotId}/takes/{takeId}/promote-to-asset` copies a finished take's video into the asset pool the same way, under a new asset id, independent of the take/shot it came from.
 - `POST /api/projects/{id}/audio/{track}` (`track` = `mix` or `vocal`) uploads the raw audio file itself to `audio/<track>.<ext>`.
 - `POST /api/projects/{id}/export` runs the whole-project export as a job with aggregate SSE progress; `POST /api/jobs/{jobId}/cancel` requests cancellation, checked between shots and mid-`ffmpeg`-encode.
@@ -249,9 +249,9 @@ A minimal FastAPI backend (`backend/`) replaces the old "download a JSON file" s
 - `POST /api/settings/test` makes a lightweight request against whichever provider (`ai` or `comfy`) is specified and reports whether it succeeded.
 - `POST /api/projects/{id}/assets/{assetId}/describe` streams one image to the configured AI provider's chat completions endpoint (`stream: true`) and re-emits each token as a job event's `delta` field over the same SSE job shape, so the frontend can pour the response into the description field as it arrives.
 - `POST /api/expand-description` streams the same way for the Direction tab's "Expand with AI" - stateless (text in, expanded text out), no project/asset lookup involved.
-- `POST /api/projects/{id}/shots/{shotId}/generate` submits a generation job to the configured ComfyUI Pod (upload reference images, submit the real `R2V_H3_V1` workflow, poll for completion, download the result) over the same job/SSE shape; the resulting file lands under `shots/<shotId>/takes/<takeId>/output.mp4` in the project folder. Like the endpoints above, it never writes `project.json` itself - the frontend records the take and persists it via the normal Save.
+- `POST /api/projects/{id}/shots/{shotId}/generate` submits a generation job to the configured ComfyUI Pod (upload reference images, submit the real `R2V_H3_V1` workflow, poll for completion, download the result) over the same job/SSE shape; the resulting file lands under `shots/<shotId>/takes/<takeId>/output.mp4` in the project folder. Generation first flushes pending autosave changes, and the frontend canonically autosaves the returned take metadata.
 
-Projects are stored under `backend/data/projects/<id>/` (gitignored) - `project.json`, `audio/`, `assets/<assetId>/`, `shots/<shotId>/takes/<takeId>/` (generated videos), `exports/scratch/` (single-shot export), and `export/` (whole-project export, rebuilt fresh on every run). Files are served straight off disk at `/project-files/<projectId>/<relativePath>`. The frontend keeps its current project id in the browser's `localStorage`, switches it via the **Projects** picker in the **☰** menu, and periodically autosaves an in-progress draft it can offer to restore if a tab is closed (or crashes) before an explicit Save.
+Projects are stored under `backend/data/projects/<id>/` (gitignored) - `project.json`, `audio/`, `assets/<assetId>/`, `shots/<shotId>/takes/<takeId>/` (generated videos), `exports/scratch/` (single-shot export), and `export/` (whole-project export, rebuilt fresh on every run). Files are served straight off disk at `/project-files/<projectId>/<relativePath>`. The frontend keeps its current project id in the browser's `localStorage` and canonically autosaves changes to `project.json` with revision guards, atomic replacement, automatic retry, and a visible header status. Draft files are read only as a one-time migration path for sessions created by older releases.
 
 Requires `ffprobe`/`ffmpeg` on `PATH` for asset metadata, thumbnails, and export. `ffmpeg` calls all run via a plain synchronous `subprocess.Popen` in a background thread rather than `asyncio.create_subprocess_exec` - the latter needs the Proactor event loop on Windows and raises `NotImplementedError` on Selector, which some `uvicorn --reload` worker processes end up on regardless of the policy set at startup.
 

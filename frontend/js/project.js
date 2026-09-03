@@ -62,10 +62,8 @@
       subtitleExport: { offsetSeconds: (state.subtitleExport && state.subtitleExport.offsetSeconds) || 0 },
       export: state.export,
       loop: state.loop,
-      // Stamped by saveProjectToBackend() on every real save - the sole
-      // handshake value the draft mechanism (see below) uses to tell "this
-      // draft still matches what's on disk" from "the canonical file moved
-      // on since this draft was written, don't trust it".
+      // Stamped by the repository on every canonical save. Concurrency uses
+      // the content revision; this timestamp remains migration metadata.
       savedAt: state.savedAt ?? null,
     };
   }
@@ -274,11 +272,11 @@
   // project-loaded: that event intentionally clears shot selection and closes
   // the camera preview. Live updates instead refresh the same state object and
   // emit the granular events existing workspaces already observe.
-  function applyLiveProject(parsed) {
+  function applyLiveProject(parsed, revision) {
     const normalized = normalizeProjectData(parsed);
     Object.keys(state).forEach((key) => delete state[key]);
     Object.assign(state, normalized);
-    markBaseline(JSON.stringify(normalized));
+    markBaseline(JSON.stringify(normalized), revision);
     const projectId = getProjectId();
     if (projectId) api.deleteDraft(projectId).catch(() => {});
     emit('tempo-changed');
@@ -316,30 +314,27 @@
     }
   }
 
-  // --- Draft autosave + dirty tracking -------------------------------
+  // --- Canonical autosave + dirty tracking ---------------------------
   //
-  // project.json only ever changes on an explicit Save (see
-  // saveProjectToBackend). Everything typed in between - shot prompts,
-  // notes, tags, the project name - used to live only in the tab; a crash
-  // or an accidental reload lost it outright (see the heather-01 asset-
-  // replace incident: the backend had already swapped the file on disk,
-  // but the browser never got a chance to save the matching project.json).
-  //
-  // The fix is a second file, project.draft.json, continuously kept in
-  // sync with in-memory state and compared against project.json on the
-  // next load so an interrupted session can be recovered. It intentionally
-  // polls-and-diffs the whole serialized project on a timer instead of
-  // hooking every mutation site: several fields (shot prompt/notes, the
-  // project name) are deliberately mutated straight on `state` without
-  // emitting a change event, to avoid a full re-render on every keystroke
-  // - an event-driven autosave would silently miss all of them.
-  const DRAFT_POLL_MS = 2000;
+  // The browser has one persistence representation: project.json. Direct
+  // typing is detected immediately and a fast poll also catches programmatic
+  // mutations that intentionally skip render events. Writes are debounced,
+  // serialized, atomic, and guarded by the exact canonical revision so the
+  // browser and MCP can never silently overwrite one another. The old draft
+  // endpoint remains read-only here solely to migrate interrupted sessions
+  // created by earlier releases.
+  const AUTOSAVE_POLL_MS = 250;
+  const AUTOSAVE_DEBOUNCE_MS = 600;
+  const AUTOSAVE_RETRY_MS = 2500;
 
   let lastSavedSnapshot = null;
-  let lastDraftSnapshot = null;
+  let lastObservedSnapshot = null;
   let dirty = false;
-  let draftPollTimer = null;
-  let draftWriteInFlight = false;
+  let autosavePollTimer = null;
+  let autosaveTimer = null;
+  let saveInFlight = null;
+  let canonicalRevision = null;
+  let autosaveError = null;
 
   function setDirty(next) {
     if (dirty === next) return;
@@ -351,40 +346,114 @@
     return dirty;
   }
 
-  function markBaseline(snapshot) {
-    lastSavedSnapshot = snapshot;
-    lastDraftSnapshot = snapshot;
-    setDirty(false);
+  function isSynced() {
+    return !dirty && !saveInFlight && !autosaveTimer && !autosaveError;
   }
 
-  async function pollForChanges() {
-    if (draftWriteInFlight) return;
+  function emitSaveState(status, error = null) {
+    emit('project-save-state', { status, dirty, error: error ? error.message : null });
+  }
+
+  function markBaseline(snapshot, revision = canonicalRevision) {
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    lastSavedSnapshot = snapshot;
+    lastObservedSnapshot = snapshot;
+    canonicalRevision = revision;
+    autosaveError = null;
+    setDirty(false);
+    emitSaveState('saved');
+  }
+
+  function scheduleAutosave(delay = AUTOSAVE_DEBOUNCE_MS) {
+    if (!getProjectId() || !canonicalRevision) return;
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(() => {
+      autosaveTimer = null;
+      performAutosave().catch(() => {});
+    }, delay);
+  }
+
+  async function performAutosave() {
+    if (saveInFlight) return saveInFlight;
+    const projectId = getProjectId();
+    if (!projectId || !canonicalRevision) return null;
+
+    const payload = serializeProject();
+    const snapshot = JSON.stringify(payload);
+    if (snapshot === lastSavedSnapshot) {
+      setDirty(false);
+      emitSaveState('saved');
+      return null;
+    }
+
+    const expectedRevision = canonicalRevision;
+    autosaveError = null;
+    setDirty(true);
+    emitSaveState('saving');
+    let saveFailed = false;
+    saveInFlight = (async () => {
+      try {
+        const result = await api.autosaveProject(projectId, payload, expectedRevision);
+        canonicalRevision = result.revision;
+        state.savedAt = result.project.savedAt;
+        lastSavedSnapshot = JSON.stringify({ ...payload, savedAt: state.savedAt });
+        const currentSnapshot = JSON.stringify(serializeProject());
+        lastObservedSnapshot = currentSnapshot;
+        setDirty(currentSnapshot !== lastSavedSnapshot);
+        autosaveError = null;
+        emitSaveState(dirty ? 'pending' : 'saved');
+        return result;
+      } catch (error) {
+        saveFailed = true;
+        autosaveError = error;
+        setDirty(true);
+        emitSaveState(error.status === 409 ? 'conflict' : 'error', error);
+        throw error;
+      } finally {
+        saveInFlight = null;
+        if (dirty) scheduleAutosave(saveFailed ? AUTOSAVE_RETRY_MS : AUTOSAVE_DEBOUNCE_MS);
+      }
+    })();
+    return saveInFlight;
+  }
+
+  function pollForChanges() {
     const projectId = getProjectId();
     if (!projectId) return;
-
-    const data = serializeProject();
-    const snapshot = JSON.stringify(data);
-    setDirty(snapshot !== lastSavedSnapshot);
-    if (snapshot === lastDraftSnapshot) return;
-
-    draftWriteInFlight = true;
-    try {
-      await api.putDraft(projectId, {
-        basedOnSavedAt: state.savedAt ?? null,
-        draftUpdatedAt: Date.now(),
-        data,
-      });
-      lastDraftSnapshot = snapshot;
-    } catch (err) {
-      console.warn('Draft autosave failed.', err);
-    } finally {
-      draftWriteInFlight = false;
+    const snapshot = JSON.stringify(serializeProject());
+    if (snapshot === lastObservedSnapshot) return;
+    lastObservedSnapshot = snapshot;
+    const changed = snapshot !== lastSavedSnapshot;
+    setDirty(changed);
+    if (changed) {
+      autosaveError = null;
+      emitSaveState('pending');
+      scheduleAutosave();
     }
   }
 
-  function startDraftAutosave() {
-    if (draftPollTimer) return;
-    draftPollTimer = setInterval(pollForChanges, DRAFT_POLL_MS);
+  function noteLocalChange() {
+    if (!getProjectId()) return;
+    setDirty(true);
+    autosaveError = null;
+    emitSaveState('pending');
+    scheduleAutosave();
+  }
+
+  function startCanonicalAutosave() {
+    if (autosavePollTimer) return;
+    autosavePollTimer = setInterval(pollForChanges, AUTOSAVE_POLL_MS);
+    document.addEventListener('input', noteLocalChange, true);
+    document.addEventListener('change', noteLocalChange, true);
+  }
+
+  async function flushAutosave() {
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    if (saveInFlight) await saveInFlight;
+    pollForChanges();
+    if (dirty) await performAutosave();
   }
 
   // Runs on every project load (initial page load or switching projects):
@@ -395,7 +464,7 @@
   // superseded save (e.g. saved from elsewhere, or hand-repaired) - nothing
   // safe to recover, so it's discarded without asking (see project chat:
   // "1: still verwerfen").
-  async function loadProjectConsideringDraft(rawProject, projectId) {
+  async function loadProjectConsideringDraft(rawProject, projectId, revision) {
     const normalizedCanonical = normalizeProjectData(rawProject);
     const canonicalSnapshot = JSON.stringify(normalizedCanonical);
 
@@ -416,16 +485,19 @@
       if (restore) {
         const normalizedDraft = normalizeProjectData(draft.data);
         applyNormalizedProject(normalizedDraft);
+        canonicalRevision = revision;
         lastSavedSnapshot = canonicalSnapshot;
-        lastDraftSnapshot = JSON.stringify(normalizedDraft);
-        setDirty(lastDraftSnapshot !== lastSavedSnapshot);
+        lastObservedSnapshot = JSON.stringify(normalizedDraft);
+        setDirty(lastObservedSnapshot !== lastSavedSnapshot);
+        emitSaveState('pending');
+        scheduleAutosave(0);
         return;
       }
       await api.deleteDraft(projectId).catch(() => {});
     }
 
     applyNormalizedProject(normalizedCanonical);
-    markBaseline(canonicalSnapshot);
+    markBaseline(canonicalSnapshot, revision);
   }
 
   // Loads the project last saved to the backend (by id, kept in localStorage
@@ -437,9 +509,9 @@
     const storedId = localStorage.getItem(PROJECT_ID_STORAGE_KEY);
     try {
       if (storedId) {
-        const project = await api.getProject(storedId);
-        await loadProjectConsideringDraft(project, storedId);
-        startDraftAutosave();
+        const record = await api.getProjectRecord(storedId);
+        await loadProjectConsideringDraft(record.project, storedId, record.revision);
+        startCanonicalAutosave();
         return;
       }
     } catch (err) {
@@ -448,24 +520,17 @@
     try {
       const created = await api.createProject(serializeProject());
       localStorage.setItem(PROJECT_ID_STORAGE_KEY, created.id);
-      markBaseline(JSON.stringify(normalizeProjectData(created.project)));
-      startDraftAutosave();
+      markBaseline(JSON.stringify(normalizeProjectData(created.project)), created.revision);
+      startCanonicalAutosave();
     } catch (err) {
       console.warn('Backend unavailable - project will not persist across reloads.', err);
     }
   }
 
-  // The backend already deletes project.draft.json as part of a successful
-  // save (see run_save_job) - once project.json itself reflects this state,
-  // there's nothing left for the draft to recover.
+  // Kept as the public manual-save hook for Ctrl+S and "Save now". It drains
+  // the same canonical queue; there is no second manual-save representation.
   async function saveProjectToBackend() {
-    const id = localStorage.getItem(PROJECT_ID_STORAGE_KEY);
-    if (!id) throw new Error('no project id - backend was unavailable at startup');
-    state.savedAt = Date.now();
-    const payload = serializeProject();
-    const { jobId } = await api.putProject(id, payload);
-    await api.waitForJob(jobId);
-    markBaseline(JSON.stringify(payload));
+    await flushAutosave();
   }
 
   function getProjectId() {
@@ -476,21 +541,23 @@
   // Does not touch any audio currently loaded in the browser - like project
   // load, the mix/vocal still need to be reselected for the new project.
   async function createNewProject() {
+    await flushAutosave();
     const fresh = MSE.state.createDefaultState();
     const created = await api.createProject(fresh);
     localStorage.setItem(PROJECT_ID_STORAGE_KEY, created.id);
     const normalized = normalizeProjectData(created.project);
     applyNormalizedProject(normalized);
-    markBaseline(JSON.stringify(normalized));
-    startDraftAutosave();
+    markBaseline(JSON.stringify(normalized), created.revision);
+    startCanonicalAutosave();
     return created.id;
   }
 
   async function openProject(id) {
-    const project = await api.getProject(id);
+    await flushAutosave();
+    const record = await api.getProjectRecord(id);
     localStorage.setItem(PROJECT_ID_STORAGE_KEY, id);
-    await loadProjectConsideringDraft(project, id);
-    startDraftAutosave();
+    await loadProjectConsideringDraft(record.project, id, record.revision);
+    startCanonicalAutosave();
   }
 
   async function listProjects() {
@@ -550,6 +617,7 @@
     listProjects,
     applyLiveProject,
     isDirty,
+    isSynced,
     exportShotsJson,
     exportShotsCsv,
     // Generic client-side text-file download (Blob + object URL), reused by

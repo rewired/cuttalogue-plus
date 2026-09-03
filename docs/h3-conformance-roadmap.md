@@ -154,7 +154,7 @@ The implementation is intentionally split:
 
 Each feature branch was created from `integration/h3-conformance`, tested,
 pushed, and merged with a non-fast-forward merge. The integration branch is the
-only branch intended to merge into `master`.
+only branch intended to merge into `main`.
 
 ## 5. Next phases
 
@@ -292,7 +292,7 @@ external compute, installed model weights, and potentially billable resources.
 
 ## 8. Master merge gate
 
-`integration/h3-conformance` may merge into `master` when:
+`integration/h3-conformance` may merge into `main` when:
 
 1. the fast deterministic gate passes;
 2. the focused H3 tests pass;
@@ -300,7 +300,7 @@ external compute, installed model weights, and potentially billable resources.
 4. the integration branch is pushed;
 5. a manual generation confirms prompt, vocal, frame count, and reference order
    on the configured ComfyUI installation;
-6. the merge commit and resulting `master` are pushed.
+6. the merge commit and resulting `main` are pushed.
 
 Advanced phases do not block the foundation merge if they remain accurately
 documented as deferred and no current UI promises unsupported behavior.

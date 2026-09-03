@@ -90,6 +90,14 @@ section, header, footer {
   font-size: 13px;
 }
 
+.autosave-status {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.autosave-status.error { color: #ff6b6b; }
+.autosave-status.saving { color: var(--accent); }
+
 .project-picker { position: relative; }
 
 .projects-menu {
