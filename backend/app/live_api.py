@@ -34,7 +34,7 @@ async def acknowledge_project_live_state(project_id: str, payload: dict):
     repository = ProjectRepository(DATA_DIR)
     try:
         return LiveActivityStore(DATA_DIR, repository).acknowledge_browser(
-            project_id, payload.get("revision"),
+            project_id, payload.get("revision"), payload.get("ready", True),
         )
     except ProjectNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

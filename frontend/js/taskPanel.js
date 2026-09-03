@@ -57,6 +57,7 @@
     showPanel('Exporting project');
 
     try {
+      await MSE.project.saveProjectToBackend();
       const { jobId } = await MSE.api.exportProject(projectId, { includeMixSnippet: el.includeMix.checked });
       activeJobId = jobId;
       const result = await MSE.api.watchJob(jobId, updateProgress);

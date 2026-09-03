@@ -1,5 +1,7 @@
 # CUTTAlogue
 
+> Historical concept note: configurable `free`, `4n+1`, and `8n+1` examples below are superseded in CUTTAlogue Plus by MiniMax H3's fixed `17n+5` render lattice at 24 fps.
+
 ## Product name
 
 **CUTTAlogue**

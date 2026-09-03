@@ -37,4 +37,18 @@ assert_h3_contract((22 + 1e-6) / frames.H3_FPS, 39)
 assert_h3_contract(9.7, 243)
 assert_h3_contract(362 / frames.H3_FPS, 362)
 
+# Timeline/export math must enforce the same lattice even when an older project
+# still contains a legacy configurable rule.
+legacy_video = {
+    "fpsNumerator": 25,
+    "fpsDenominator": 1,
+    "frameRule": {"stride": 8, "offset": 1},
+}
+legacy_calc = frames.frame_calc(1.0, legacy_video)
+check(legacy_calc["cutFrames"] == 25, "timeline cut keeps its editorial frame count")
+check(legacy_calc["renderFrames"] == 39, "timeline render advances to the next 17n+5 frame")
+check(legacy_calc["renderFps"] == 24, "timeline render remains on H3's fixed 24 fps clock")
+check(legacy_calc["renderFrames"] % 17 == 5, "timeline/export render count is H3 legal")
+check(frames.frame_rule_label() == "17n+5", "export labels the canonical H3 rule")
+
 print("\nAll H3 frame contract checks passed.")

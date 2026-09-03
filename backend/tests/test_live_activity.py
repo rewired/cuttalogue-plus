@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -88,17 +89,22 @@ with tempfile.TemporaryDirectory(prefix="cuttalogue-live-test-") as raw:
     store._write(stale)
     check(store.read()["active"] is False, "stale sessions expire instead of locking the frontend")
 
-    (project_dir / "project.draft.json").write_text(json.dumps({
-        "basedOnSavedAt": None,
-        "draftUpdatedAt": 1,
-        "data": {**project, "name": "Unsaved browser edit"},
-    }), encoding="utf-8")
-    try:
-        store.begin("project-a", "Unsafe overwrite")
-        check(False, "unsaved frontend drafts block live edit sessions")
-    except LiveActivityError as error:
-        check("unsaved edits" in str(error), "unsaved frontend drafts block live edit sessions")
-    (project_dir / "project.draft.json").unlink()
+    store.acknowledge_browser("project-a", project_revision, ready=False)
+
+    def finish_autosave():
+        time.sleep(0.08)
+        store.acknowledge_browser("project-a", project_revision, ready=True)
+
+    autosave_thread = threading.Thread(target=finish_autosave)
+    autosave_thread.start()
+    wait_started = time.monotonic()
+    after_autosave = store.begin("project-a", "Wait for canonical autosave")
+    autosave_thread.join()
+    check(
+        time.monotonic() - wait_started >= 0.05 and after_autosave["active"],
+        "live edit start waits for a connected browser to finish autosaving",
+    )
+    store.end(after_autosave["sessionId"])
 
     active = store.begin("project-a", "Visible over HTTP", 1)
     original_data_dir = live_api.DATA_DIR

@@ -90,6 +90,14 @@ section, header, footer {
   font-size: 13px;
 }
 
+.autosave-status {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.autosave-status.error { color: #ff6b6b; }
+.autosave-status.saving { color: var(--accent); }
+
 .project-picker { position: relative; }
 
 .projects-menu {
@@ -1196,6 +1204,48 @@ th { color: var(--text-dim); font-weight: 500; font-size: 12px; }
 .scene-anchor-labels { flex-basis: 100%; white-space: pre; }
 .scene-anchor-row { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(3, 90px) auto; gap: 6px; flex-basis: 100%; }
 .scene-binding-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr); align-items: center; gap: 8px; flex-basis: 100%; }
+.camera-preview-mood-panel {
+  padding: 10px 16px;
+  color: var(--text);
+  background: var(--panel);
+  border-bottom: 1px solid var(--panel-border);
+}
+.camera-preview-mood-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.camera-preview-mood-header div { display: flex; align-items: baseline; gap: 10px; }
+.camera-preview-mood-header span { color: var(--text-dim); font-size: 11px; }
+.camera-preview-mood-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.camera-preview-mood-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.camera-preview-mood-controls label.camera-preview-check {
+  flex-direction: row;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  font-size: 11px;
+}
+.camera-preview-mood-controls input[type="number"] { width: 72px; }
+.camera-preview-mood-controls input[type="range"] { width: 120px; accent-color: var(--accent); }
+#camera-preview-mood-btn.active { color: var(--text); border-color: var(--accent); background: rgba(76, 141, 255, 0.15); }
+#camera-preview-reset-view-btn { display: none; }
+.camera-preview-free-active #camera-preview-reset-view-btn { display: inline-block; }
+.camera-preview-free-active #camera-preview-canvas { cursor: grab; }
+.camera-preview-free-active #camera-preview-canvas:active { cursor: grabbing; }
 @media (max-width: 850px) {
   #scene-calibration-content { grid-template-columns: 1fr; }
   .scene-anchor-row { grid-template-columns: 1fr repeat(3, 70px); }
@@ -1245,6 +1295,7 @@ th { color: var(--text-dim); font-weight: 500; font-size: 12px; }
 @media (max-width: 700px) {
   .camera-preview-toolbar { align-items: flex-start; flex-direction: column; }
   .camera-preview-diagnostics { margin-left: 0; }
+  .camera-preview-mood-header { align-items: flex-start; flex-direction: column; }
   .camera-preview-hud { flex-wrap: wrap; right: 10px; }
 }
 

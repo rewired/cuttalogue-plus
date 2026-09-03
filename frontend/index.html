@@ -40,7 +40,7 @@
       <button type="button" id="setup-btn">Setup</button>
       <div class="app-menu-divider"></div>
       <div class="app-menu-row">
-        <button id="save-project-btn">Save project</button>
+        <button id="save-project-btn">Save now</button>
         <span class="filename" id="project-status"></span>
       </div>
       <button id="export-json-btn">Export shots (JSON)</button>
@@ -52,6 +52,7 @@
   <div class="header-left">
     <h1>CUTTAlogue</h1>
     <input type="text" id="project-name-input" class="project-name-input" placeholder="Untitled project">
+    <span id="autosave-status" class="autosave-status" role="status">Saved</span>
   </div>
   <button id="play-pause-btn" disabled>&#9654; Play</button>
   <div class="loop-controls">
@@ -109,11 +110,9 @@
       <fieldset>
         <legend>Video</legend>
         <label>FPS <input type="number" id="fps-input" min="1" max="240" step="0.001" value="24"></label>
-        <label>Frame rule
-          <select id="frame-rule-select">
-            <option value="free">free</option>
-            <option value="4">4n+1</option>
-            <option value="8" selected>8n+1</option>
+        <label>H3 frame rule
+          <select id="frame-rule-select" disabled title="MiniMax H3 requires frameCount % 17 = 5">
+            <option value="17" selected>17n+5</option>
           </select>
         </label>
       </fieldset>
@@ -460,6 +459,8 @@ Right-click a shot to delete it">&#9432;</span></div>
       <label class="camera-preview-scene-label" for="camera-preview-scene-select">Scene</label>
       <select id="camera-preview-scene-select" aria-label="Scene assigned to this shot"></select>
       <button type="button" id="camera-preview-calibrate-btn">Calibrate</button>
+      <button type="button" id="camera-preview-mood-btn" aria-expanded="false">Mood card</button>
+      <button type="button" id="camera-preview-reset-view-btn" title="Reset the orbit camera">Reset view</button>
       <span id="camera-preview-diagnostics" class="camera-preview-diagnostics"></span>
     </div>
     <section id="scene-calibration-panel" class="scene-calibration-panel" hidden>
@@ -469,12 +470,31 @@ Right-click a shot to delete it">&#9432;</span></div>
       </div>
       <div id="scene-calibration-content"></div>
     </section>
+    <section id="camera-preview-mood-panel" class="camera-preview-mood-panel" hidden>
+      <div class="camera-preview-mood-header">
+        <div><strong>3D mood card</strong><span id="camera-preview-mood-source">No environment image assigned</span></div>
+        <span>Preview only - never changes prompts or generation.</span>
+      </div>
+      <div class="camera-preview-mood-controls">
+        <label class="camera-preview-check"><input id="camera-preview-mood-enabled" type="checkbox" checked> Visible</label>
+        <label class="camera-preview-check"><input id="camera-preview-mood-billboard" type="checkbox"> Face free camera</label>
+        <label>Opacity <input id="camera-preview-mood-opacity" type="range" min="0.05" max="0.8" step="0.01" value="0.28"></label>
+        <label>X <input id="camera-preview-mood-x" type="number" step="0.1" value="0"></label>
+        <label>Y <input id="camera-preview-mood-y" type="number" step="0.1" value="1.8"></label>
+        <label>Z <input id="camera-preview-mood-z" type="number" step="0.1" value="0"></label>
+        <label>Width <input id="camera-preview-mood-width" type="number" min="0.1" step="0.1" value="6"></label>
+        <label>Height <input id="camera-preview-mood-height" type="number" min="0.1" step="0.1" value="3.35"></label>
+        <label>Yaw deg <input id="camera-preview-mood-yaw" type="number" step="1" value="0"></label>
+        <button type="button" id="camera-preview-mood-reset-btn">Reset card</button>
+      </div>
+    </section>
     <div class="camera-preview-viewport">
       <canvas id="camera-preview-canvas" aria-label="Three-dimensional camera preview"></canvas>
       <div class="camera-preview-hud">
         <span><strong id="camera-preview-time">0.00</strong> s</span>
         <span><strong id="camera-preview-lens">35</strong> mm</span>
         <span id="camera-preview-segment">No active segment</span>
+        <span id="camera-preview-free-help" hidden>Drag: orbit / Shift+drag: pan / Wheel: zoom</span>
       </div>
       <div class="camera-preview-empty" id="camera-preview-empty" hidden>
         Add Camera segments in Direction to preview their motion.

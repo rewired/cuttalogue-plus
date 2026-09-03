@@ -33,6 +33,7 @@
 
     saveProjectBtn: document.getElementById('save-project-btn'),
     projectStatus: document.getElementById('project-status'),
+    autosaveStatus: document.getElementById('autosave-status'),
     exportJsonBtn: document.getElementById('export-json-btn'),
     exportCsvBtn: document.getElementById('export-csv-btn'),
   };
@@ -45,7 +46,7 @@
     el.gridDivision.value = state.tempo.gridDivision;
 
     el.fps.value = state.video.fpsNumerator;
-    el.frameRule.value = state.video.frameRule && state.video.frameRule.stride ? String(state.video.frameRule.stride) : 'free';
+    el.frameRule.value = '17';
 
     el.minLength.value = state.shotLimits.minimumSeconds;
     el.maxLength.value = state.shotLimits.maximumSeconds;
@@ -153,8 +154,7 @@
     function applyVideo() {
       state.video.fpsNumerator = Math.max(0.001, Number(el.fps.value) || 24);
       state.video.fpsDenominator = 1;
-      const rule = el.frameRule.value;
-      state.video.frameRule = { stride: rule === 'free' ? null : Number(rule), offset: 1 };
+      state.video.frameRule = { stride: 17, offset: 5 };
       emit('video-changed');
     }
     [el.fps, el.frameRule].forEach((input) => input.addEventListener('change', applyVideo));
@@ -174,6 +174,25 @@
   }
 
   let toastEl = null;
+  function renderAutosaveState(detail) {
+    const status = detail && detail.status;
+    const labels = {
+      pending: 'Saving soon…',
+      saving: 'Saving…',
+      saved: 'Saved',
+      error: 'Save failed — retrying',
+      conflict: 'Syncing latest version…',
+    };
+    const label = labels[status] || 'Saved';
+    if (el.autosaveStatus) {
+      el.autosaveStatus.textContent = label;
+      el.autosaveStatus.classList.toggle('saving', status === 'pending' || status === 'saving');
+      el.autosaveStatus.classList.toggle('error', status === 'error' || status === 'conflict');
+      el.autosaveStatus.title = detail && detail.error ? detail.error : '';
+    }
+    setProjectStatus(label);
+  }
+
   let toastHideTimer = null;
 
   // Transient confirmation, separate from the persistent #project-status
@@ -194,14 +213,14 @@
 
   async function saveProject() {
     el.saveProjectBtn.disabled = true;
-    setProjectStatus('Saving...');
+    renderAutosaveState({ status: 'saving' });
     try {
       await MSE.project.saveProjectToBackend();
-      setProjectStatus('Saved');
-      showToast('Project saved');
+      renderAutosaveState({ status: 'saved' });
+      showToast('Everything saved');
     } catch (err) {
       console.error(err);
-      setProjectStatus('Save failed - is the backend running?');
+      renderAutosaveState({ status: 'error', error: err.message });
     } finally {
       el.saveProjectBtn.disabled = false;
     }
@@ -214,13 +233,9 @@
     el.exportCsvBtn.addEventListener('click', () => MSE.project.exportShotsCsv());
 
     on('project-loaded', syncSettingsPanelFromState);
-    // Ignored while a manual save is in flight (button disabled) - that
-    // click handler already owns the status text for "Saving..."/"Save
-    // failed", and markBaseline() inside saveProjectToBackend() fires this
-    // same event mid-await, which would otherwise race it.
-    on('project-dirty-changed', ({ detail }) => {
-      if (el.saveProjectBtn.disabled) return;
-      setProjectStatus(detail.dirty ? 'Unsaved changes' : 'Saved');
+    on('project-save-state', ({ detail }) => {
+      renderAutosaveState(detail);
+      el.saveProjectBtn.disabled = detail.status === 'saving';
     });
 
     // Browser's native Ctrl+S opens a "Save Page As" dialog - always

@@ -13,6 +13,7 @@ CUTTAlogue Plus embeds Shot Visualizer's camera mathematics, scene parsing, and 
 - New projects and empty frame-rate inputs default to 24 fps; existing project frame rates remain unchanged.
 - SHA-256 expected revisions, structured conflicts, project-local inter-process locks, and atomic project writes.
 - Explicit generation startup from persisted shot state and effective cancellation checks throughout the ComfyUI polling path.
+- One enforced H3 render lattice across timeline, export, preflight, ComfyUI submission, and MCP: every render frame count satisfies `17n+5`.
 
 ## Compatibility
 
@@ -20,4 +21,4 @@ Existing CUTTAlogue projects load with safe defaults and are not rewritten merel
 
 ## Upgrade notes
 
-Work from a copy of important project directories until release acceptance is complete. Review [release readiness](release-readiness.md), [MCP operation](mcp.md), and the [integration roadmap](cuttalogue-plus-roadmap.md) before merging the integration branch into `master`.
+Work from a copy of important project directories until release acceptance is complete. Review [release readiness](release-readiness.md), [MCP operation](mcp.md), and the [integration roadmap](cuttalogue-plus-roadmap.md) before merging a release-scoped feature branch into `main`.

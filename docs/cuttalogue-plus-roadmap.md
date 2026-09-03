@@ -2,7 +2,7 @@
 
 Status: implementation in progress
 Baseline: CUTTAlogue commit `ec19f2e`  
-Integration branch: `integration/shot-visualizer`
+Default branch: `main`; changes land through focused feature branches.
 
 ## 1. Product vision
 
@@ -28,13 +28,13 @@ MCP exposes the same domain operations used by the browser UI. It must never bec
 
 - Phase 0 is complete: the fork, baseline tag, integration branch, and this roadmap exist.
 - Phase 1 is complete for the initial deterministic camera vocabulary and regression coverage.
-- Phase 2 has an initial native CUTTAlogue WebGL workspace with shared transport and explicit resource disposal.
+- Phase 2 is substantially implemented: the native CUTTAlogue WebGL workspace has shared transport, an orbitable and pannable Free View, an animated Shot Camera frustum, automatic translucent environment-image mood cards, and explicit GPU resource disposal. Direct viewport manipulation of scene anchors remains open.
 - Phase 3 is substantially implemented: PLY/SPLAT/GLB ingestion, reusable scene persistence, backwards-compatible normalization, per-shot scene assignment, scene-default camera and motion calibration, named anchors, per-shot target bindings, concrete unresolved-target diagnostics, and initial geometry rendering are implemented. SPLAT currently uses a point-sprite preview; a full anisotropic Gaussian rasterizer and direct viewport manipulation of calibration points remain open.
 - Phase 4 has started: preview compilation and deterministic, versioned Camera JSON export now share one application-service boundary. Broader authoring synchronization remains open.
-- Phase 5 is substantially implemented: canonical reads and atomic, revision-guarded writes pass through path-confined repositories and transport-neutral services. Camera evaluation and canonical H3 prompt compilation have shared backend/HTTP coverage; migrating the legacy whole-project browser save remains open.
+- Phase 5 is substantially implemented: canonical reads and atomic, revision-guarded writes pass through path-confined repositories and transport-neutral services. The browser now uses debounced canonical autosave with serialized writes, automatic retry, revision conflicts, visible status, and an MCP-ready handshake; legacy drafts remain read-only migration input.
 - Phase 6's read-only milestone is complete: an official MCP-v2 STDIO server exposes all eleven planned Project/Shot/Direction/camera/prompt/job tools through shared services and is tested with the SDK's in-memory client. Controlled writes remain deferred to Phase 7.
 - Phase 7 is functionally complete: typed Shot and Camera Direction writes, spatial scene calibration, asset assignment, authored constraints, canonical compile-and-save, revision-checked explicit generation, and job cancellation share domain services with structured conflicts and MCP mutation metadata. A shot can be spatially directed, compiled, generated, inspected, and cancelled without raw JSON access; Phase 8 hardening remains.
-- Phase 8 has started: the deterministic fast release gate passes all 12 local backend suites and all 18 frontend suites; recovery, migration, security boundaries, known limitations, manual acceptance, and initial release notes are documented. Real-model alignment smoke, large-scene profiling, and recorded manual acceptance remain before the `master` merge.
+- Phase 8 has started: the integrated deterministic fast release gate passes all 16 local backend suites and all 22 frontend suites; recovery, migration, security boundaries, known limitations, manual acceptance, and initial release notes are documented. Real-model alignment smoke, large-scene profiling, and recorded manual acceptance remain before the next release merge into `main`.
 
 ## 2. Guiding principles
 
@@ -277,13 +277,15 @@ Acceptance:
 
 ### Phase 2 — Embedded renderer
 
-Deliver a lifecycle-managed renderer, expanded Preview workspace, Shot/Free views, path and frustum overlays, and cleanup on close or project switch.
+Deliver a lifecycle-managed renderer, expanded Preview workspace, Shot/Free views, path and frustum overlays, a preview-only environment-image mood card, and cleanup on close or project switch.
 
 Acceptance:
 
 - repeated opening creates no duplicate animation loops or listeners;
 - project switching releases obsolete GPU resources;
 - preview follows the selected shot;
+- Free View supports mouse orbit, Shift-drag pan, wheel zoom, and a visible animated Shot Camera frustum;
+- a shot's environment image can appear as a configurable translucent 3D mood card without affecting prompts or generation;
 - all surrounding controls use CUTTAlogue's visual system;
 - no standalone Shot Visualizer palette, branding, or app chrome remains.
 
@@ -313,10 +315,10 @@ Deliver end-to-end fixtures, large-scene profiling, recovery and migration docum
 
 ## 12. Branching and integration strategy
 
-Long-lived branches:
+Primary branch:
 
-- `master`: preserved CUTTAlogue baseline until Plus is ready to become the default.
-- `integration/shot-visualizer`: reviewed integration line.
+- `main`: canonical CUTTAlogue Plus product line and merge target.
+- `integration/*`: retained milestone branches, not competing product baselines.
 
 Short-lived branches:
 
@@ -328,7 +330,7 @@ Short-lived branches:
 - `feature/service-layer` for domain operations;
 - `feature/mcp-read` and `feature/mcp-write` for MCP milestones.
 
-Each branch starts from the integration line, keeps commits focused, includes proportional tests, updates changed contracts, and merges only after focused verification.
+Each new branch starts from `main`, keeps commits focused, includes proportional tests, updates changed contracts, and merges only after focused verification.
 
 The standalone Shot Visualizer is an implementation donor, not a subtree with an independent runtime or identity. Math, parsing, renderer, and interaction logic move in coherent units and are adapted to CUTTAlogue lifecycle and styling.
 
