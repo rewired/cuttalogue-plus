@@ -26,15 +26,15 @@
     URL.revokeObjectURL(url);
   }
 
-  function serializeProject() {
+  function serializeProject(source = state) {
     return {
-      version: state.version,
-      name: state.name || '',
-      audio: state.audio,
-      tempo: state.tempo,
-      video: state.video,
-      shotLimits: state.shotLimits,
-      shots: state.shots.map((s) => ({
+      version: source.version,
+      name: source.name || '',
+      audio: source.audio,
+      tempo: source.tempo,
+      video: source.video,
+      shotLimits: source.shotLimits,
+      shots: source.shots.map((s) => ({
         id: s.id,
         startSeconds: s.startSeconds,
         endSeconds: s.endSeconds,
@@ -52,17 +52,17 @@
         preview: s.preview || { initialCameraOverride: null, targetBindings: {}, interpreterProfile: 'cinematic-v1' },
         direction: s.direction || { camera: [], lighting: [], subjects: {}, props: {}, beatNotes: [] },
       })),
-      assets: state.assets,
-      scenes: state.scenes || [],
-      vocalCues: (state.vocalCues || []).map((c) => ({ id: c.id, timeSeconds: c.timeSeconds, label: c.label || '' })),
-      lyrics: { text: (state.lyrics && state.lyrics.text) || '' },
-      lyricsAlignment: state.lyricsAlignment || null,
-      subtitleExport: { offsetSeconds: (state.subtitleExport && state.subtitleExport.offsetSeconds) || 0 },
-      export: state.export,
-      loop: state.loop,
+      assets: source.assets,
+      scenes: source.scenes || [],
+      vocalCues: (source.vocalCues || []).map((c) => ({ id: c.id, timeSeconds: c.timeSeconds, label: c.label || '' })),
+      lyrics: { text: (source.lyrics && source.lyrics.text) || '' },
+      lyricsAlignment: source.lyricsAlignment || null,
+      subtitleExport: { offsetSeconds: (source.subtitleExport && source.subtitleExport.offsetSeconds) || 0 },
+      export: source.export,
+      loop: source.loop,
       // Stamped by the repository on every canonical save. Concurrency uses
       // the content revision; this timestamp remains migration metadata.
-      savedAt: state.savedAt ?? null,
+      savedAt: source.savedAt ?? null,
     };
   }
 
@@ -283,7 +283,13 @@
     const normalized = normalizeProjectData(parsed);
     Object.keys(state).forEach((key) => delete state[key]);
     Object.assign(state, normalized);
-    markBaseline(JSON.stringify(normalized), revision);
+    // Dirty tracking compares JSON strings, so both sides must use the same
+    // canonical serializer. normalizeProjectData deliberately constructs shot
+    // defaults before spreading persisted fields, which can change object-key
+    // order without changing any values. Comparing that object directly with
+    // serializeProject() made every live apply look like a local edit and
+    // caused an endless live -> autosave -> new revision loop.
+    markBaseline(JSON.stringify(serializeProject()), revision);
     const projectId = getProjectId();
     if (projectId) api.deleteDraft(projectId).catch(() => {});
     emit('tempo-changed');
@@ -473,7 +479,7 @@
   // "1: still verwerfen").
   async function loadProjectConsideringDraft(rawProject, projectId, revision) {
     const normalizedCanonical = normalizeProjectData(rawProject);
-    const canonicalSnapshot = JSON.stringify(normalizedCanonical);
+    const canonicalSnapshot = JSON.stringify(serializeProject(normalizedCanonical));
 
     let draft = null;
     try {
@@ -527,7 +533,7 @@
     try {
       const created = await api.createProject(serializeProject());
       localStorage.setItem(PROJECT_ID_STORAGE_KEY, created.id);
-      markBaseline(JSON.stringify(normalizeProjectData(created.project)), created.revision);
+      markBaseline(JSON.stringify(serializeProject(normalizeProjectData(created.project))), created.revision);
       startCanonicalAutosave();
     } catch (err) {
       console.warn('Backend unavailable - project will not persist across reloads.', err);
@@ -554,7 +560,7 @@
     localStorage.setItem(PROJECT_ID_STORAGE_KEY, created.id);
     const normalized = normalizeProjectData(created.project);
     applyNormalizedProject(normalized);
-    markBaseline(JSON.stringify(normalized), created.revision);
+    markBaseline(JSON.stringify(serializeProject()), created.revision);
     startCanonicalAutosave();
     return created.id;
   }
