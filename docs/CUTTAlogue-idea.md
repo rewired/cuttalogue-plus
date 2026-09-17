@@ -644,7 +644,7 @@ Every exported shot receives one vocal snippet prepared for lip sync.
 Format:
 
 ```text
-File name:    lip_sync.flac
+File name:    shot-XXX_<slug>-lip_sync.flac
 Codec:        FLAC
 Sample rate:  32 kHz
 Channels:     Mono
@@ -662,7 +662,7 @@ ffmpeg \
   -ar 32000 \
   -ac 1 \
   -c:a flac \
-  lip_sync.flac
+  shot-XXX_<slug>-lip_sync.flac
 ```
 
 ## Optional mix export
@@ -691,11 +691,11 @@ Example:
 export/
 ├── project.json
 │
-├── shot-001/
+├── shot-001_opening-closeup/
 │   ├── shot.json
 │   ├── prompt.txt
 │   ├── notes.md
-│   ├── lip_sync.flac
+│   ├── shot-001_opening-closeup-lip_sync.flac
 │   └── assets/
 │       ├── character-front.png
 │       └── motion-reference.mp4
@@ -707,9 +707,9 @@ export/
 When optional mix export is enabled:
 
 ```text
-shot-001/
-├── lip_sync.flac
-├── mix.flac
+shot-001_opening-closeup/
+├── shot-001_opening-closeup-lip_sync.flac
+├── shot-001_opening-closeup-mix.flac
 └── ...
 ```
 
@@ -741,8 +741,8 @@ Example:
 For every shot:
 
 1. create the shot folder,
-2. generate `lip_sync.flac`,
-3. optionally generate `mix.flac`,
+2. generate `shot-XXX_<slug>-lip_sync.flac`,
+3. optionally generate `shot-XXX_<slug>-mix.flac`,
 4. copy assigned assets unchanged,
 5. write `shot.json`,
 6. write prompt and notes.
@@ -873,7 +873,7 @@ Example:
   "phase": "audio",
   "shot": 12,
   "shotCount": 37,
-  "message": "Creating lip_sync.flac",
+  "message": "Creating shot-012_rooftop-lip_sync.flac",
   "itemProgress": 0.68
 }
 ```
@@ -899,13 +899,13 @@ Shot 12 of 37
 ──────────────────────────────── 32%
 
 Current task:
-Creating lip_sync.flac
+Creating shot-012_rooftop-lip_sync.flac
 
 FFmpeg:
 ██████████████████░░░░░░░ 68%
 
 Output:
-export/shot-012/lip_sync.flac
+export/shot-012_rooftop/shot-012_rooftop-lip_sync.flac
 
 [Cancel] [Show details]
 ```
@@ -1024,7 +1024,7 @@ Expanded:
 EXPORT PROJECT
 
 Shot 12 of 37
-lip_sync.flac
+shot-012_rooftop-lip_sync.flac
 ████████████████░░░ 74%
 
 ✓ Folder created
@@ -1140,8 +1140,8 @@ They are recalculated from source timing and project settings.
 ## Phase 3 — Export
 
 - create shot folders,
-- generate `lip_sync.flac`,
-- optionally generate `mix.flac`,
+- generate `shot-XXX_<slug>-lip_sync.flac`,
+- optionally generate `shot-XXX_<slug>-mix.flac`,
 - copy assigned assets,
 - write shot manifests,
 - report structured progress.

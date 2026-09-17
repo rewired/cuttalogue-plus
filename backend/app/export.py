@@ -1,23 +1,57 @@
 # Whole-project export: per-shot folders, shot.json manifest, copied assets,
-# prompt/notes, optional per-shot mix.flac snippet, the full mix track
+# prompt/notes, optional per-shot rendered mix snippet, the full mix track
 # copied once to the export root, aggregate progress, and cancellation
 # (checked between shots and mid-encode via media.py's should_cancel).
 import asyncio
 import json
 import logging
+import re
 import shutil
 import traceback
+import unicodedata
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
 
-from . import audio, frames, jobs, media
+from . import audio, frames, jobs, media, settings
 from .projects import project_dir
 
 logger = logging.getLogger("cuttalogue.export")
 
 router = APIRouter()
+
+
+def _ascii_slug(value: object) -> str:
+    # WordPress-style title sanitizing: locale-aware German replacements from
+    # remove_accents(), broad Latin transliteration, then the same conservative
+    # ASCII/dash cleanup used by sanitize_title_with_dashes(..., context="save").
+    text = unicodedata.normalize("NFC", str(value or "").strip()).casefold()
+    if not text:
+        return ""
+
+    text = text.translate(str.maketrans({
+        "ä": "ae", "ö": "oe", "ü": "ue",
+        "æ": "ae", "ð": "d", "ø": "o", "þ": "th",
+        "đ": "d", "ħ": "h", "ı": "i", "ĳ": "ij",
+        "ĸ": "k", "ł": "l", "ŋ": "n", "œ": "oe",
+        "ŧ": "t", "ſ": "s", "ƒ": "f", "ə": "e", "ɑ": "a",
+    }))
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"&.+?;", "", text)
+    text = re.sub(r"[\s./\u2010-\u2015]+", "-", text)
+    text = re.sub(r"[^a-z0-9_-]", "", text)
+    return re.sub(r"-+", "-", text).strip("-")
+
+
+def _shot_directory_name(shot: dict) -> str:
+    base = f"shot-{shot['id']:03d}"
+    slug = _ascii_slug(shot.get("name"))
+    return f"{base}_{slug}" if slug else base
+
+
+def _shot_audio_filename(shot: dict, kind: str, extension: str) -> str:
+    return f"{_shot_directory_name(shot)}-{kind}{extension}"
 
 
 def _load_project(project_id: str) -> tuple[dict, Path]:
@@ -39,6 +73,10 @@ def _error_message(exc: Exception) -> str:
 @router.post("/api/projects/{project_id}/export")
 async def export_project(project_id: str, options: dict = Body(default={})):
     include_mix = bool(options.get("includeMixSnippet"))
+    audio_settings = settings.load_settings()["audio"]
+    audio_sample_rate = media.audio_render_sample_rate(audio_settings["renderQuality"])
+    audio_render_format = media.normalize_audio_render_format(audio_settings["renderFormat"])
+    audio_format_spec = media.audio_render_format_spec(audio_render_format)
     data, directory = _load_project(project_id)
 
     shots = data.get("shots", [])
@@ -47,7 +85,7 @@ async def export_project(project_id: str, options: dict = Body(default={})):
 
     vocal_path = audio.require_track(data, directory, "vocal")
     # Full-mix copy (below) is best-effort - a project without a mix track
-    # still exports fine. The per-shot mix.flac snippet is opt-in, so *that*
+    # still exports fine. The per-shot rendered mix snippet is opt-in, so *that*
     # still errors like before when requested without a mix uploaded.
     mix_path = audio.optional_track(data, directory, "mix")
     if include_mix and mix_path is None:
@@ -94,7 +132,13 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                     return
 
                 shot_id = shot["id"]
-                shot_dir = export_dir / f"shot-{shot_id:03d}"
+                shot_dir = export_dir / _shot_directory_name(shot)
+                lip_sync_filename = _shot_audio_filename(
+                    shot, "lip_sync", audio_format_spec["extension"]
+                )
+                mix_snippet_filename = _shot_audio_filename(
+                    shot, "mix", audio_format_spec["extension"]
+                )
                 current_shot_dir = shot_dir
                 shot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -111,14 +155,21 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                             "phase": "audio",
                             "shot": index + 1,
                             "shotCount": shot_count,
-                            "message": f"Shot {shot_id}: encoding lip_sync.flac",
+                            "message": f"Shot {shot_id}: encoding {lip_sync_filename}",
                             "itemProgress": fraction,
                             "progressFraction": base_progress + fraction / shot_count,
                         },
                     )
 
                 await media.run_ffmpeg_with_progress(
-                    media.audio_snippet_cmd(vocal_path, shot["startSeconds"], render_duration, shot_dir / "lip_sync.flac"),
+                    media.audio_snippet_cmd(
+                        vocal_path,
+                        shot["startSeconds"],
+                        render_duration,
+                        shot_dir / lip_sync_filename,
+                        sample_rate=audio_sample_rate,
+                        render_format=audio_render_format,
+                    ),
                     render_duration,
                     on_progress,
                     should_cancel=should_cancel,
@@ -134,14 +185,21 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                                 "phase": "audio",
                                 "shot": index + 1,
                                 "shotCount": shot_count,
-                                "message": f"Shot {shot_id}: encoding mix.flac",
+                                "message": f"Shot {shot_id}: encoding {mix_snippet_filename}",
                                 "itemProgress": fraction,
                                 "progressFraction": base_progress + fraction / shot_count,
                             },
                         )
 
                     await media.run_ffmpeg_with_progress(
-                        media.audio_snippet_cmd(mix_path, shot["startSeconds"], render_duration, shot_dir / "mix.flac"),
+                        media.audio_snippet_cmd(
+                            mix_path,
+                            shot["startSeconds"],
+                            render_duration,
+                            shot_dir / mix_snippet_filename,
+                            sample_rate=audio_sample_rate,
+                            render_format=audio_render_format,
+                        ),
                         render_duration,
                         on_mix_progress,
                         should_cancel=should_cancel,
@@ -188,6 +246,13 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                     "renderFrames": calc["renderFrames"],
                     "renderDurationSeconds": render_duration,
                     "overhangFrames": calc["overhangFrames"],
+                    "audio": {
+                        "format": audio_render_format,
+                        "sampleRate": audio_sample_rate,
+                        "channels": int(media.LIP_SYNC_CHANNELS),
+                        "lipSyncFile": lip_sync_filename,
+                        "mixFile": mix_snippet_filename if include_mix else None,
+                    },
                     "assets": asset_relative_paths,
                 }
                 (shot_dir / "shot.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

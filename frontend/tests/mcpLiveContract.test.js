@@ -33,11 +33,15 @@ const mainIndex = html.indexOf('js/main.js');
 assert(apiIndex >= 0 && projectIndex > apiIndex && liveIndex > projectIndex && mainIndex > liveIndex, 'live controller loads after API/project and before app initialization');
 assert(api.includes('/api/projects/${id}/live'), 'frontend API reads the project live-state endpoint');
 assert(api.includes('/api/projects/${id}/live/ack'), 'frontend API acknowledges the revision visible in the browser');
-assert(live.includes('POLL_INTERVAL_MS = 750'), 'live revisions are observed with a sub-second polling interval');
+assert(api.includes("params.set('after', options.afterToken)"), 'live API supports a server-held long-poll cursor');
+assert(api.includes('signal: options.signal'), 'live long polls can be restarted when browser state changes');
+assert(live.includes('observedLiveToken = live.token'), 'live controller advances the long-poll cursor');
+assert(live.includes('new AbortController()'), 'live controller owns one cancellable request instead of an interval');
 assert(live.includes('MSE.project.isDirty()'), 'live updates wait for pending canonical autosave state');
 assert(live.includes('MSE.project.applyLiveProject(record.project, record.revision)'), 'revision changes apply through the dedicated revision-aware live project path');
 assert(live.includes('observedRevision === null || live.revision !== observedRevision'), 'the first live poll loads canonical state instead of accepting an unknown baseline');
-assert(live.includes('acknowledgeProjectLive(projectId, observedRevision, MSE.project.isSynced())'), 'each visible revision reports whether canonical autosave is fully settled');
+assert(!live.includes('setInterval') && !live.includes('setTimeout'), 'live synchronization does not use browser polling timers');
+assert(live.includes("MSE.state.on('project-save-state', restartPoll)"), 'save-state changes restart the held request with current readiness');
 assert(!live.includes('renderDirtyConflict'), 'live updates never ask the user for a manual save');
 assert(live.includes('activity.progressPercent'), 'agent progress is rendered in the wait modal');
 

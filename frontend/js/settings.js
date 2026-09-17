@@ -1,7 +1,7 @@
-// Setup modal: application-level provider connections (AI chat API for
-// "Describe image"/"Expand with AI", and the ComfyUI Pod for per-shot
-// generation) - stored on the backend outside of any project, never part of
-// project.json or an export. Neither provider's API key is ever sent back
+// Setup modal: application-level audio-render quality and provider
+// connections (AI chat API for "Describe image"/"Expand with AI", and the
+// ComfyUI Pod for per-shot generation) - stored on the backend outside of any
+// project, never part of project.json or an export. Neither provider's API key is ever sent back
 // down from the backend (see settings.py's _public_view), so this form only
 // shows whether one is saved, not what it is; leaving a key field blank on
 // save keeps whatever is already stored for that provider.
@@ -14,6 +14,8 @@
     el.openBtn = document.getElementById('setup-btn');
     el.overlay = document.getElementById('settings-modal');
     el.closeBtn = document.getElementById('settings-close-btn');
+    el.audioRenderQuality = document.getElementById('settings-audio-render-quality');
+    el.audioRenderFormat = document.getElementById('settings-audio-render-format');
 
     el.ai = {
       baseUrl: document.getElementById('settings-ai-base-url'),
@@ -41,7 +43,9 @@
   // wipe out the "Saved." confirmation the save handler just set.
   async function loadIntoForm() {
     try {
-      const { providers } = await MSE.api.getSettings();
+      const { providers, audio } = await MSE.api.getSettings();
+      el.audioRenderQuality.value = (audio && audio.renderQuality) || 'mono-32000';
+      el.audioRenderFormat.value = (audio && audio.renderFormat) || 'flac';
       el.ai.baseUrl.value = providers.ai.baseUrl || '';
       el.ai.defaultModel.value = providers.ai.defaultModel || '';
       el.ai.apiKey.value = '';
@@ -70,6 +74,13 @@
     return {
       baseUrl: el.comfy.baseUrl.value.trim(),
       apiKey: el.comfy.apiKey.value.trim(),
+    };
+  }
+
+  function currentAudioValues() {
+    return {
+      renderQuality: el.audioRenderQuality.value,
+      renderFormat: el.audioRenderFormat.value,
     };
   }
 
@@ -131,7 +142,10 @@
       try {
         // mode is fixed to 'pod' until Serverless support exists - not a form
         // field yet, just sent through so the backend always has a value.
-        await MSE.api.saveSettings({ ai: currentAiValues(), comfy: { ...currentComfyValues(), mode: 'pod' } });
+        await MSE.api.saveSettings(
+          { ai: currentAiValues(), comfy: { ...currentComfyValues(), mode: 'pod' } },
+          currentAudioValues()
+        );
         el.saveStatus.textContent = 'Saved.';
         await loadIntoForm();
       } catch (err) {

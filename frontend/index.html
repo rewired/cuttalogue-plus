@@ -386,10 +386,28 @@ Right-click a shot to delete it">&#9432;</span></div>
     </div>
     <div class="modal-body">
       <p class="hint">
-        Both providers below are application-wide, not part of any project -
+        These settings are application-wide, not part of any project -
         stored locally on this machine and never written into project files
         or exports.
       </p>
+      <fieldset class="modal-fieldset">
+        <legend>Audio render quality</legend>
+        <p class="hint">Controls the mono audio rendered for generation and per-shot export.</p>
+        <label class="modal-field">Format
+          <select id="settings-audio-render-format">
+            <option value="flac">FLAC (standard)</option>
+            <option value="wav-16">WAV · PCM 16-bit</option>
+            <option value="wav-24">WAV · PCM 24-bit</option>
+          </select>
+        </label>
+        <label class="modal-field">Sample rate
+          <select id="settings-audio-render-quality">
+            <option value="mono-32000">Mono · 32 kHz (standard)</option>
+            <option value="mono-44100">Mono · 44.1 kHz</option>
+            <option value="mono-48000">Mono · 48 kHz</option>
+          </select>
+        </label>
+      </fieldset>
       <fieldset class="modal-fieldset">
         <legend>AI Provider</legend>
         <p class="hint">Connects to an OpenRouter-compatible chat API, used by "Describe image" and "Expand with AI".</p>

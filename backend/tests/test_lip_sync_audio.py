@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import comfy_workflow_template, frames, media  # noqa: E402
+from app import comfy_workflow_template, export as export_module, frames, jobs, media  # noqa: E402
 from app import projects as projects_module  # noqa: E402
 from app import settings as settings_module  # noqa: E402
 
@@ -42,6 +42,20 @@ def ffprobe_duration(path: Path) -> float:
         check=True,
     )
     return float(json.loads(proc.stdout)["format"]["duration"])
+
+
+def ffprobe_audio_stream(path: Path) -> dict:
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return next(item for item in json.loads(proc.stdout)["streams"] if item["codec_type"] == "audio")
+
+
+def ffprobe_sample_rate(path: Path) -> int:
+    return int(ffprobe_audio_stream(path)["sample_rate"])
 
 
 def mean_volume_db(path: Path, start: float, duration: float) -> float:
@@ -78,6 +92,17 @@ async def _noop_progress(_fraction: float) -> None:
 def render_snippet(source: Path, start: float, duration: float, output: Path) -> None:
     cmd = media.audio_snippet_cmd(source, start, duration, output)
     asyncio.run(media.run_ffmpeg_with_progress(cmd, duration, _noop_progress))
+
+
+async def run_export_and_wait(project_id: str, options: dict | None = None) -> str:
+    response = await export_module.export_project(project_id, options or {})
+    job_id = json.loads(response.body)["jobId"]
+    for _ in range(200):
+        job = jobs.get_job(job_id)
+        if job and job.status in ("done", "error", "cancelled"):
+            return job.status
+        await asyncio.sleep(0.05)
+    return "timeout"
 
 
 TMP_DIR = Path(tempfile.mkdtemp(prefix="cuttalogue-lipsync-test-"))
@@ -126,6 +151,37 @@ try:
     check(head_db > -40, f"Case C: leading segment still has real source audio (mean_volume {head_db:.1f} dB)")
     check(tail_db < -40, f"Case C: trailing overhang is silence (mean_volume {tail_db:.1f} dB), not a loop of the source")
 
+    # --- Case F: every Setup quality controls the encoded sample rate ---------
+    for preset, expected_rate in media.AUDIO_RENDER_SAMPLE_RATES.items():
+        out_f = TMP_DIR / f"case_f_{expected_rate}.flac"
+        cmd = media.audio_snippet_cmd(source, 0.0, 0.25, out_f, sample_rate=media.audio_render_sample_rate(preset))
+        asyncio.run(media.run_ffmpeg_with_progress(cmd, 0.25, _noop_progress))
+        check(
+            ffprobe_sample_rate(out_f) == expected_rate,
+            f"Case F: {preset} renders real {expected_rate} Hz audio",
+        )
+    check(
+        media.audio_render_sample_rate("unknown") == 32000,
+        "Case F: an invalid/legacy preset safely falls back to 32 kHz",
+    )
+
+    # --- Case I: every Setup format controls container and bit depth ----------
+    for render_format, spec in media.AUDIO_RENDER_FORMATS.items():
+        out_i = TMP_DIR / f"case_i_{render_format}{spec['extension']}"
+        cmd = media.audio_snippet_cmd(source, 0.0, 0.25, out_i, render_format=render_format)
+        asyncio.run(media.run_ffmpeg_with_progress(cmd, 0.25, _noop_progress))
+        stream = ffprobe_audio_stream(out_i)
+        check(stream["codec_name"] == spec["codec"], f"Case I: {render_format} uses {spec['codec']}")
+        if spec["bitsPerSample"] is not None:
+            check(
+                int(stream["bits_per_sample"]) == spec["bitsPerSample"],
+                f"Case I: {render_format} contains real {spec['bitsPerSample']}-bit PCM",
+            )
+    check(
+        media.normalize_audio_render_format("unknown") == "flac",
+        "Case I: an invalid/legacy format safely falls back to FLAC",
+    )
+
     # --- Case E: workflow substitution -----------------------------------------
     expected_workflow_duration = 175 / frames.H3_FPS
     workflow = comfy_workflow_template.build_workflow_payload(
@@ -163,6 +219,12 @@ try:
             encoding="utf-8",
         )
         settings_module.SETTINGS_FILE = test_settings_file
+        loaded_legacy_settings = settings_module.load_settings()
+        check(
+            loaded_legacy_settings["audio"]["renderQuality"] == "mono-32000"
+            and loaded_legacy_settings["audio"]["renderFormat"] == "flac",
+            "Case G: settings predating audio options default to mono 32 kHz FLAC",
+        )
 
         project_id = "test-proj"
         project_dir_path = test_data_dir / project_id
@@ -176,6 +238,17 @@ try:
         (project_dir_path / "project.json").write_text(json.dumps(project_payload), encoding="utf-8")
 
         client = TestClient(app)
+        settings_res = client.put(
+            "/api/settings",
+            json={"audio": {"renderQuality": "mono-48000", "renderFormat": "wav-16"}},
+        )
+        check(settings_res.status_code == 200, f"Case G: audio render settings save through Setup API ({settings_res.status_code})")
+        saved_audio_settings = settings_module.load_settings()["audio"]
+        check(
+            saved_audio_settings["renderQuality"] == "mono-48000"
+            and saved_audio_settings["renderFormat"] == "wav-16",
+            "Case G: selected audio sample rate and format persist in application settings",
+        )
         res = client.post(
             f"/api/projects/{project_id}/shots/1/generate",
             json={"prompt": "a test prompt", "referenceAssetIds": []},
@@ -183,6 +256,45 @@ try:
         check(res.status_code == 400, f"Case D: missing vocal track returns HTTP 400 (got {res.status_code})")
         detail = (res.json() or {}).get("detail", "")
         check("vocal" in detail.lower(), f"Case D: error message mentions the vocal track ({detail!r})")
+
+        # The integration boundary that prevents the Setup selector from being
+        # cosmetic: persist a different preset, run the real export job, and
+        # inspect the WAV emitted by export.py.
+        client.put(
+            "/api/settings",
+            json={"audio": {"renderQuality": "mono-44100", "renderFormat": "wav-24"}},
+        )
+        project_audio_dir = project_dir_path / "audio"
+        project_audio_dir.mkdir()
+        shutil.copyfile(source, project_audio_dir / "vocal.wav")
+        shutil.copyfile(source, project_audio_dir / "mix.wav")
+        project_payload["audio"] = {
+            "vocal": {"relativePath": "audio/vocal.wav"},
+            "mix": {"relativePath": "audio/mix.wav"},
+        }
+        (project_dir_path / "project.json").write_text(json.dumps(project_payload), encoding="utf-8")
+        export_status = asyncio.run(run_export_and_wait(project_id, {"includeMixSnippet": True}))
+        exported_shot_dir = project_dir_path / "export" / "shot-001"
+        exported_lip_sync = exported_shot_dir / "shot-001-lip_sync.wav"
+        exported_mix = exported_shot_dir / "shot-001-mix.wav"
+        check(export_status == "done", f"Case H: real project export completes ({export_status})")
+        exported_streams = [
+            ffprobe_audio_stream(path) for path in (exported_lip_sync, exported_mix) if path.is_file()
+        ]
+        check(
+            len(exported_streams) == 2
+            and all(stream.get("codec_name") == "pcm_s24le" for stream in exported_streams)
+            and all(int(stream.get("sample_rate", 0)) == 44100 for stream in exported_streams)
+            and all(int(stream.get("bits_per_sample", 0)) == 24 for stream in exported_streams),
+            "Case H: Setup settings produce real 44.1 kHz/24-bit PCM shot-named lip-sync and mix WAVs",
+        )
+        exported_manifest = json.loads((exported_shot_dir / "shot.json").read_text(encoding="utf-8"))
+        check(
+            exported_manifest["audio"]["format"] == "wav-24"
+            and exported_manifest["audio"]["lipSyncFile"] == "shot-001-lip_sync.wav"
+            and exported_manifest["audio"]["mixFile"] == "shot-001-mix.wav",
+            "Case H: shot manifest identifies the selected format and generated filenames",
+        )
     finally:
         projects_module.DATA_DIR = original_data_dir
         settings_module.SETTINGS_FILE = original_settings_file

@@ -3,12 +3,13 @@
 (function (MSE) {
   'use strict';
 
-  const POLL_INTERVAL_MS = 750;
   const elements = {};
   let observedProjectId = null;
   let observedRevision = null;
+  let observedLiveToken = null;
   let pollInFlight = false;
-  let pollTimer = null;
+  let pollController = null;
+  let stopped = false;
   let loggedConnectionError = false;
 
   function cacheElements() {
@@ -52,7 +53,7 @@
   }
 
   async function poll() {
-    if (pollInFlight) return;
+    if (pollInFlight || stopped) return;
     const projectId = MSE.project && MSE.project.getProjectId();
     if (!projectId) {
       hideModal();
@@ -61,42 +62,63 @@
     if (projectId !== observedProjectId) {
       observedProjectId = projectId;
       observedRevision = null;
+      observedLiveToken = null;
     }
 
     pollInFlight = true;
+    pollController = new AbortController();
     try {
-      const live = await MSE.api.getProjectLive(projectId);
+      const live = await MSE.api.getProjectLive(projectId, {
+        afterToken: observedLiveToken,
+        revision: observedRevision,
+        ready: MSE.project.isSynced(),
+        signal: pollController.signal,
+      });
       loggedConnectionError = false;
+      observedLiveToken = live.token;
       renderActivity(live.activity);
       if (observedRevision === null || live.revision !== observedRevision) {
-        const applied = await applyRevision(projectId);
-        if (!applied) return;
-      }
-      if (observedRevision) {
-        await MSE.api.acknowledgeProjectLive(projectId, observedRevision, MSE.project.isSynced());
+        await applyRevision(projectId);
       }
     } catch (error) {
+      if (error.name === 'AbortError') return;
       if (!loggedConnectionError) {
         console.warn('MCP live synchronization is temporarily unavailable.', error);
         loggedConnectionError = true;
       }
     } finally {
       pollInFlight = false;
+      pollController = null;
+      if (!stopped && MSE.project.getProjectId() === projectId) queueMicrotask(poll);
     }
+  }
+
+  function restartPoll() {
+    observedLiveToken = null;
+    if (pollController) pollController.abort();
+    else queueMicrotask(poll);
   }
 
   function resetProjectObservation() {
     observedProjectId = null;
     observedRevision = null;
+    observedLiveToken = null;
+    restartPoll();
   }
 
   function init() {
     cacheElements();
     MSE.state.on('project-loaded', resetProjectObservation);
+    MSE.state.on('project-save-state', restartPoll);
     poll();
-    pollTimer = setInterval(poll, POLL_INTERVAL_MS);
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  MSE.mcpLive = { poll, stop: () => clearInterval(pollTimer) };
+  MSE.mcpLive = {
+    poll,
+    stop: () => {
+      stopped = true;
+      if (pollController) pollController.abort();
+    },
+  };
 })(window.MSE = window.MSE || {});

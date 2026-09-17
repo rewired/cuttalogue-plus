@@ -1,5 +1,10 @@
 # Starts the CUTTAlogue backend (which also serves the frontend).
 # Usage: .\start.ps1
+# Development with automatic Python reloads: .\start.ps1 -Reload
+
+param(
+    [switch]$Reload
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -7,6 +12,8 @@ $repoRoot = $PSScriptRoot
 $backendDir = Join-Path $repoRoot "backend"
 $venvDir = Join-Path $backendDir ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
+$appUrl = "http://127.0.0.1:8000/"
+$browserWatcher = Join-Path $repoRoot "scripts\open_browser_when_ready.py"
 
 if (-not (Test-Path $venvPython)) {
     Write-Host "No venv found at $venvDir - creating one..."
@@ -23,4 +30,16 @@ if ($LASTEXITCODE -ne 0) {
     & $venvPython -m pip install -r (Join-Path $backendDir "requirements.txt")
 }
 
-& $venvPython -m uvicorn app.main:app --app-dir $backendDir --reload --reload-dir $backendDir
+# The watcher is detached from the server's console so it cannot interfere
+# with Uvicorn's Windows reload worker or Ctrl+C handling.
+Start-Process `
+    -FilePath $venvPython `
+    -ArgumentList @("`"$browserWatcher`"", "`"$appUrl`"") `
+    -WindowStyle Hidden
+
+$uvicornArgs = @("-m", "uvicorn", "app.main:app", "--app-dir", $backendDir)
+if ($Reload) {
+    $uvicornArgs += @("--reload", "--reload-dir", $backendDir)
+}
+
+& $venvPython @uvicornArgs

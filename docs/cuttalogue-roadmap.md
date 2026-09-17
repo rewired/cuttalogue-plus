@@ -66,13 +66,13 @@ Split from the original single "Export" phase because FFmpeg encoding and folder
 
 ### 4a — lip-sync export only
 
-For one selected shot (not the whole project yet): generate `lip_sync.flac` (32 kHz mono FLAC, H3 render duration including overhang) into a scratch/output location, with real FFmpeg progress via `-progress pipe:1` reported through the job/SSE pattern from Phase 2.
+For one selected shot (not the whole project yet): generate `shot-XXX_<slug>-lip_sync.flac` (32 kHz mono FLAC, H3 render duration including overhang) into a scratch/output location, with real FFmpeg progress via `-progress pipe:1` reported through the job/SSE pattern from Phase 2.
 
 **Why first:** this is the actual novel, error-prone part (`-ss`/`-t` math against render duration, not cut duration). Proving it on one shot avoids debugging FFmpeg edge cases inside a 37-shot batch loop.
 
 ### 4b — full export package
 
-Extend 4a to the whole project: per-shot folders, `shot.json` manifest, copied assets, `prompt.txt`/`notes.md`, optional `mix.flac` when enabled, aggregate progress ("Shot 12 of 37") in the shared task panel, cancel support.
+Extend 4a to the whole project: per-shot folders, `shot.json` manifest, copied assets, `prompt.txt`/`notes.md`, optional `shot-XXX_<slug>-mix.flac` when enabled, aggregate progress ("Shot 12 of 37") in the shared task panel, cancel support.
 
 **Acceptance (4b):** exporting a project with several shots and mixed assets produces the folder structure from the product doc, matches the manifest schema, and can be cancelled mid-run without leaving the project state corrupted.
 

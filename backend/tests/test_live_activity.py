@@ -115,8 +115,16 @@ with tempfile.TemporaryDirectory(prefix="cuttalogue-live-test-") as raw:
         response = TestClient(app).get("/api/projects/project-a/live")
         body = response.json()
         check(response.status_code == 200 and body["revision"] == active["revision"], "HTTP live state returns the current revision")
+        check(isinstance(body.get("token"), str) and len(body["token"]) == 64, "HTTP live state returns a long-poll cursor")
         check(body["activity"]["sessionId"] == active["sessionId"], "HTTP live state exposes the active frontend session")
         check(body["browser"]["connected"] is True, "HTTP live state exposes the browser handshake")
+        held_response = TestClient(app).get("/api/projects/project-a/live", params={
+            "after": body["token"], "revision": body["revision"], "ready": "true", "wait_seconds": 0.1,
+        })
+        check(
+            held_response.status_code == 200 and held_response.json()["token"] == body["token"],
+            "unchanged live state returns only after the bounded long-poll wait",
+        )
         ack_response = TestClient(app).post("/api/projects/project-a/live/ack", json={
             "revision": body["revision"],
         })

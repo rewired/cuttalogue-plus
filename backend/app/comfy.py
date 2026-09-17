@@ -145,7 +145,11 @@ async def start_generation_job(data: dict, directory: Path, shot: dict, body: di
     if not preflight["ok"]:
         raise GenerationStartError(error_message(preflight))
 
-    comfy = settings.load_settings()["providers"]["comfy"]
+    app_settings = settings.load_settings()
+    comfy = app_settings["providers"]["comfy"]
+    audio_sample_rate = media.audio_render_sample_rate(app_settings["audio"]["renderQuality"])
+    audio_render_format = media.normalize_audio_render_format(app_settings["audio"]["renderFormat"])
+    audio_extension = media.audio_render_format_spec(audio_render_format)["extension"]
     base_url = (comfy["baseUrl"] or "").rstrip("/")
     if not base_url:
         raise GenerationStartError("ComfyUI provider not configured - set it up on the Setup page first")
@@ -206,7 +210,7 @@ async def start_generation_job(data: dict, directory: Path, shot: dict, body: di
     # outcome. Never touches the project's own stored vocal file or the
     # export/ directory.
     generation_dir = directory / "shots" / str(shot_id) / "generation" / job.id
-    lip_sync_path = generation_dir / "lip_sync.flac"
+    lip_sync_path = generation_dir / f"lip_sync{audio_extension}"
 
     async def run():
         try:
@@ -214,7 +218,14 @@ async def start_generation_job(data: dict, directory: Path, shot: dict, body: di
             generation_dir.mkdir(parents=True, exist_ok=True)
             await jobs.emit(job, {"status": "running", "phase": "audio", "message": "Preparing lip-sync audio"})
             await media.run_ffmpeg_with_progress(
-                media.audio_snippet_cmd(vocal_path, shot["startSeconds"], h3_duration, lip_sync_path),
+                media.audio_snippet_cmd(
+                    vocal_path,
+                    shot["startSeconds"],
+                    h3_duration,
+                    lip_sync_path,
+                    sample_rate=audio_sample_rate,
+                    render_format=audio_render_format,
+                ),
                 h3_duration,
                 _noop_progress,
             )

@@ -19,23 +19,21 @@ For background on architecture and design decisions, see [docs/musical-shot-edit
 - **Beats, cuts & Burst Mode** - segment boundaries across all lanes auto-derive a beat timeline; any beat can be marked a hard cut, splitting the shot into multiple `[Shot N]` compositions in the compiled prompt. **Burst Mode** bulk-populates a shot with evenly-spaced hard-cut beats and randomizes camera framing (and optionally subject pose) per beat - a fast way to explore poses/angles against a reference set.
 - **Deterministic H3 compiler + optional AI expansion** - one click turns a shot's Direction data into MiniMax H3's six-section reference-generation prompt (`subject_definitions` / `summary` / `retention_analysis` / `detailed_description` / `overall_soundscape` / `non_diegetic_music`), with an optional "Expand with AI" pass that only elaborates the deterministic `detailed_description` - never inventing subjects, actions, or cuts that weren't authored.
 - **Real generation, kept as takes** - each shot generates through a configured ComfyUI Pod running the actual `R2V_H3_V1` MiniMax H3 reference-to-video workflow; every run is kept as a new take (seed, status, video), never overwritten, with a one-click "promote to asset" to copy a take's video into the reusable asset pool.
-- **Whole-project export** - a per-shot package (`lip_sync.flac`, `shot.json`, `prompt.txt`, `notes.md`, copied assets) ready to hand off to further production steps.
+- **Whole-project export** - a per-shot package (rendered `shot-XXX_<slug>-lip_sync.flac` or `.wav`, `shot.json`, `prompt.txt`, `notes.md`, copied assets) ready to hand off to further production steps.
 
 ---
 
 ## Getting started
 
-A small Python/FastAPI backend serves the app and persists projects to disk (see [Backend](#backend) below):
+A small Python/FastAPI backend serves the app and persists projects to disk (see [Backend](#backend) below). On Windows, start it from the repository root:
 
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate        # Windows; use `source .venv/bin/activate` on macOS/Linux
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+```powershell
+.\start.ps1
 ```
 
-Then open `http://localhost:8000` in your browser.
+The launcher creates the virtual environment and installs missing dependencies when needed. Once the server is ready, it opens `http://127.0.0.1:8000/` in the system's default browser.
+
+For backend development, automatic Python reloads can be enabled explicitly with `.\start.ps1 -Reload`. The stable default intentionally avoids Uvicorn's reload worker because its console signaling can terminate the whole process tree on Windows.
 
 1. Open the **☰** menu (top left of the header) and use **"Load mix"** to pick your music mix.
 2. Optionally use **"Load vocal"** in the same menu to add the vocal stem.
@@ -206,7 +204,7 @@ Generating always adds a new take, even re-running with the same prompt. A video
 
 ## Export
 
-**Whole project** - the **☰** menu has an **"Export project"** button (plus an **"Include mix snippet"** checkbox). It builds the full per-shot export package from the product doc: `export/shot-XXX/` folders, each with `lip_sync.flac`, `shot.json` (the render manifest - frame counts, frame rule, assigned asset paths), `prompt.txt`, `notes.md`, copied assigned assets, and optionally `mix.flac`. A floating task panel (bottom-right) tracks aggregate progress ("Shot 12 of 37") with a **Cancel** button; cancelling stops between shots (and mid-encode on the current one) without leaving a corrupted or partially-written shot folder behind.
+**Whole project** - the **☰** menu has an **"Export project"** button (plus an **"Include mix snippet"** checkbox). It builds the full per-shot export package from the product doc: unnamed shots use `export/shot-XXX/`, while named shots use `export/shot-XXX_<ascii-slug>/` (for example `shot-001_soenke-mag-baerbel/`). Each folder contains a matching `shot-XXX_<ascii-slug>-lip_sync.flac` or `.wav`, `shot.json` (the render manifest - frame counts, frame rule, audio format, assigned asset paths), `prompt.txt`, `notes.md`, copied assigned assets, and optionally `shot-XXX_<ascii-slug>-mix.flac` or `.wav`. For unnamed shots the `_slug` part is omitted. A floating task panel (bottom-right) tracks aggregate progress ("Shot 12 of 37") with a **Cancel** button; cancelling stops between shots (and mid-encode on the current one) without leaving a corrupted or partially-written shot folder behind.
 
 Both need a vocal track already loaded (see above), and the mix track too if "Include mix snippet" is checked; export automatically flushes pending autosave changes first.
 
@@ -214,7 +212,9 @@ Both need a vocal track already loaded (see above), and the mix track too if "In
 
 ## Setup
 
-The **"Setup"** button in the **☰** menu opens an application-wide connection dialog with two independent sections - separate from any project, stored locally on the backend and never written into a project's JSON or export.
+The **"Setup"** button in the **☰** menu opens an application-wide settings dialog - separate from any project, stored locally on the backend and never written into a project's JSON or export.
+
+**Audio render quality** controls the mono snippets used by both ComfyUI generation and per-shot project export. **FLAC** remains the default format; **WAV PCM 16-bit** and **WAV PCM 24-bit** are optional. The independently selectable sample rates are **32 kHz** (default for existing installs), **44.1 kHz**, and **48 kHz**.
 
 **AI Provider** (optional image descriptions / prompt expansion):
 
@@ -245,7 +245,7 @@ A minimal FastAPI backend (`backend/`) replaces the old "download a JSON file" s
 - `POST /api/projects/{id}/shots/{shotId}/takes/{takeId}/promote-to-asset` copies a finished take's video into the asset pool the same way, under a new asset id, independent of the take/shot it came from.
 - `POST /api/projects/{id}/audio/{track}` (`track` = `mix` or `vocal`) uploads the raw audio file itself to `audio/<track>.<ext>`.
 - `POST /api/projects/{id}/export` runs the whole-project export as a job with aggregate SSE progress; `POST /api/jobs/{jobId}/cancel` requests cancellation, checked between shots and mid-`ffmpeg`-encode.
-- `GET /api/settings` / `PUT /api/settings` read/write the application-level provider connections - `providers.ai` (chat API) and `providers.comfy` (ComfyUI Pod) - in `backend/data/settings.json` (gitignored). API keys are never echoed back in the `GET` response, only whether one is saved.
+- `GET /api/settings` / `PUT /api/settings` read/write the application-level audio render preset plus provider connections - `providers.ai` (chat API) and `providers.comfy` (ComfyUI Pod) - in `backend/data/settings.json` (gitignored). API keys are never echoed back in the `GET` response, only whether one is saved.
 - `POST /api/settings/test` makes a lightweight request against whichever provider (`ai` or `comfy`) is specified and reports whether it succeeded.
 - `POST /api/projects/{id}/assets/{assetId}/describe` streams one image to the configured AI provider's chat completions endpoint (`stream: true`) and re-emits each token as a job event's `delta` field over the same SSE job shape, so the frontend can pour the response into the description field as it arrives.
 - `POST /api/expand-description` streams the same way for the Direction tab's "Expand with AI" - stateless (text in, expanded text out), no project/asset lookup involved.

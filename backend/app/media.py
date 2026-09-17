@@ -26,17 +26,56 @@ AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
 POINTCLOUD_EXTS = {".ply", ".splat"}
 MODEL3D_EXTS = {".glb"}
 
-# Shared "shot lip-sync audio" definition - export.py's lip_sync.flac and
-# comfy.py's Generate-time H3 reference audio both need the exact same
-# format, and both need the output to last exactly `duration_seconds` even
+# Shared shot lip-sync audio definition: export.py and comfy.py's
+# Generate-time H3 reference audio both need the exact same selected format, and both need the output to last exactly `duration_seconds` even
 # when the source track ends first (H3's own frame-grid overhang can push
 # the required window past the end of the vocal take). One definition here
 # rather than two slightly different ffmpeg invocations.
-LIP_SYNC_SAMPLE_RATE = "32000"
 LIP_SYNC_CHANNELS = "1"
 
+# Application-wide render-quality presets. The preset id is what settings.json
+# persists; keeping the ffmpeg value here makes the UI choice and every audio
+# render caller share one authoritative mapping.
+DEFAULT_AUDIO_RENDER_PRESET = "mono-32000"
+AUDIO_RENDER_SAMPLE_RATES = {
+    "mono-32000": 32000,
+    "mono-44100": 44100,
+    "mono-48000": 48000,
+}
 
-def audio_snippet_cmd(source_path: Path, start_seconds: float, duration_seconds: float, output_path: Path) -> list[str]:
+DEFAULT_AUDIO_RENDER_FORMAT = "flac"
+AUDIO_RENDER_FORMATS = {
+    "flac": {"extension": ".flac", "codec": "flac", "bitsPerSample": None},
+    "wav-16": {"extension": ".wav", "codec": "pcm_s16le", "bitsPerSample": 16},
+    "wav-24": {"extension": ".wav", "codec": "pcm_s24le", "bitsPerSample": 24},
+}
+
+
+def normalize_audio_render_preset(value: object) -> str:
+    return value if isinstance(value, str) and value in AUDIO_RENDER_SAMPLE_RATES else DEFAULT_AUDIO_RENDER_PRESET
+
+
+def audio_render_sample_rate(preset: object) -> int:
+    return AUDIO_RENDER_SAMPLE_RATES[normalize_audio_render_preset(preset)]
+
+
+def normalize_audio_render_format(value: object) -> str:
+    return value if isinstance(value, str) and value in AUDIO_RENDER_FORMATS else DEFAULT_AUDIO_RENDER_FORMAT
+
+
+def audio_render_format_spec(render_format: object) -> dict:
+    return AUDIO_RENDER_FORMATS[normalize_audio_render_format(render_format)]
+
+
+def audio_snippet_cmd(
+    source_path: Path,
+    start_seconds: float,
+    duration_seconds: float,
+    output_path: Path,
+    sample_rate: int = AUDIO_RENDER_SAMPLE_RATES[DEFAULT_AUDIO_RENDER_PRESET],
+    render_format: str = DEFAULT_AUDIO_RENDER_FORMAT,
+) -> list[str]:
+    format_spec = audio_render_format_spec(render_format)
     return [
         "ffmpeg",
         "-y",
@@ -54,11 +93,11 @@ def audio_snippet_cmd(source_path: Path, start_seconds: float, duration_seconds:
         "-af",
         "apad",
         "-ar",
-        LIP_SYNC_SAMPLE_RATE,
+        str(sample_rate),
         "-ac",
         LIP_SYNC_CHANNELS,
         "-c:a",
-        "flac",
+        format_spec["codec"],
         str(output_path),
     ]
 

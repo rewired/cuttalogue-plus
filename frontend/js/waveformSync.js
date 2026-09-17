@@ -136,6 +136,23 @@
     return `${formatTime(seconds)} · ${formatFrame(seconds)} · ${positionInBarsBeats(seconds, state.tempo)}`;
   }
 
+  // Shot-relative time deliberately uses duration notation for the musical
+  // value: both counters start at zero at the shot boundary, independent of
+  // the project's grid offset or whether that boundary itself lands on a
+  // beat. Gaps return null so neither the header nor the cursor badge implies
+  // that an undefined part of the timeline belongs to a clip.
+  function shotRelativeLabel(seconds) {
+    const shot = shotsApi.shotAtTime(seconds);
+    if (!shot) return null;
+    const relativeSeconds = Math.max(0, seconds - shot.startSeconds);
+    return `Clip +${formatTime(relativeSeconds)} · Beat +${durationInBarsBeats(relativeSeconds, state.tempo)}`;
+  }
+
+  function fullPlayheadLabel(seconds) {
+    const relative = shotRelativeLabel(seconds);
+    return relative ? `${hoverLabel(seconds)} · ${relative}` : hoverLabel(seconds);
+  }
+
   // 'second'/'frame' are grid divisions that depend on video state, not tempo, so
   // musicalGrid.js (deliberately tempo/bar-only) doesn't know about them - resolve
   // them here instead.
@@ -323,7 +340,8 @@
   }
 
   function updatePlayheadReadout(seconds) {
-    if (els.playhead) els.playhead.textContent = hoverLabel(seconds);
+    if (els.playhead) els.playhead.textContent = fullPlayheadLabel(seconds);
+    updateShotRelativeBadge(seconds);
   }
 
   // The visible cursor line is now a single overlay per track row (see
@@ -352,6 +370,8 @@
   }
 
   let playheadEls = [];
+  let shotPlayheadEl = null;
+  let shotRelativeBadgeEl = null;
   let playheadRafId = null;
   // Other modules that draw their own playhead in a different coordinate
   // system (e.g. direction.js's shot-relative % lanes) hook in here instead
@@ -363,23 +383,46 @@
   }
 
   function createPlayheadSegments() {
+    shotPlayheadEl = null;
+    shotRelativeBadgeEl = null;
     playheadEls = [els.gridWrap, els.shotsContainer, els.mixWrap, els.vocalWrap]
       .filter(Boolean)
       .map((container) => {
         const seg = document.createElement('div');
         seg.className = 'playhead-segment';
+        if (container === els.shotsContainer) {
+          shotPlayheadEl = seg;
+          shotRelativeBadgeEl = document.createElement('div');
+          shotRelativeBadgeEl.className = 'playhead-relative-readout';
+          shotRelativeBadgeEl.hidden = true;
+          shotRelativeBadgeEl.title = 'Relative time and beat position within the current shot';
+          seg.appendChild(shotRelativeBadgeEl);
+        }
         container.appendChild(seg);
         return seg;
       });
   }
 
+  function updateShotRelativeBadge(seconds) {
+    if (!shotRelativeBadgeEl || !shotPlayheadEl) return;
+    const relative = shotRelativeLabel(seconds);
+    shotRelativeBadgeEl.hidden = !relative;
+    if (!relative) return;
+    shotRelativeBadgeEl.textContent = relative;
+    const container = shotPlayheadEl.parentElement;
+    const left = Number.parseFloat(shotPlayheadEl.style.left) || 0;
+    shotRelativeBadgeEl.classList.toggle('align-right', !!container && left > container.clientWidth / 2);
+  }
+
   function updatePlayheadPosition() {
+    const currentTime = getCurrentTime();
     if (gridWs && playheadEls.length) {
-      const left = getCurrentTime() * pxPerSecond - gridWs.getScroll();
+      const left = currentTime * pxPerSecond - gridWs.getScroll();
       playheadEls.forEach((el) => {
         el.style.left = `${left}px`;
       });
     }
+    updateShotRelativeBadge(currentTime);
     playheadTickListeners.forEach((fn) => fn());
   }
 
@@ -1209,6 +1252,8 @@
     }
     renderVocalCues();
     createPlayheadSegments();
+    updatePlayheadReadout(getCurrentTime());
+    updatePlayheadPosition();
     renderLoopOverlay();
     updateLoopToggle();
     updateLoopSnapToggle();
@@ -1281,10 +1326,19 @@
     emit('vocal-ready');
   }
 
-  on('tempo-changed', () => rebuildTimelinePlugin());
-  on('video-changed', () => renderShots());
+  on('tempo-changed', () => {
+    rebuildTimelinePlugin();
+    updatePlayheadReadout(getCurrentTime());
+  });
+  on('video-changed', () => {
+    renderShots();
+    updatePlayheadReadout(getCurrentTime());
+  });
   on('limits-changed', () => renderShots());
-  on('shots-changed', () => renderShots());
+  on('shots-changed', () => {
+    renderShots();
+    updatePlayheadReadout(getCurrentTime());
+  });
   // Re-sync the loop overlay/toggles to whichever project was just loaded -
   // loop.startSeconds/endSeconds are only meaningful against that project's
   // own mix, and gridWs may already exist (switching projects, not the very
@@ -1294,6 +1348,7 @@
     updateLoopToggle();
     updateLoopSnapToggle();
     renderVocalCues();
+    updatePlayheadReadout(getCurrentTime());
   });
   on('vocal-cues-changed', () => renderVocalCues());
   // Selecting a shot (from the list, or scrollToShot elsewhere) never changes
@@ -1341,5 +1396,6 @@
     toggleLoopEnabled: () => setLoopEnabled(!state.loop.enabled),
     toggleLoopSnapMode: () => setLoopSnapMode(state.loop.snapMode === 'events' ? 'grid' : 'events'),
     toggleShotTimeFormat: () => setShotTimeFormat(shotTimeFormat === 'seconds' ? 'clock' : 'seconds'),
+    shotRelativeLabel,
   };
 })(window.MSE = window.MSE || {});

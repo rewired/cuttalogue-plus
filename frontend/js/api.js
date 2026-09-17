@@ -26,8 +26,15 @@
     return (await getProjectRecord(id)).project;
   }
 
-  async function getProjectLive(id) {
-    const res = await fetch(`/api/projects/${id}/live`);
+  async function getProjectLive(id, options = {}) {
+    const params = new URLSearchParams();
+    if (options.afterToken) params.set('after', options.afterToken);
+    if (options.revision) params.set('revision', options.revision);
+    params.set('ready', options.ready === false ? 'false' : 'true');
+    const query = params.toString();
+    const res = await fetch(`/api/projects/${id}/live${query ? `?${query}` : ''}`, {
+      signal: options.signal,
+    });
     if (!res.ok) throw new Error(`get project live state failed: ${res.status}`);
     return res.json(); // { projectId, revision, activity }
   }
@@ -163,14 +170,14 @@
   async function getSettings() {
     const res = await fetch('/api/settings');
     if (!res.ok) throw new Error(`get settings failed: ${res.status}`);
-    return res.json(); // { providers: { ai: {baseUrl, defaultModel, hasApiKey}, comfy: {baseUrl, mode, hasApiKey} } }
+    return res.json(); // { audio: {renderQuality, renderFormat}, providers: { ai: {...}, comfy: {...} } }
   }
 
-  async function saveSettings(providers) {
+  async function saveSettings(providers, audio) {
     const res = await fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ providers }),
+      body: JSON.stringify({ providers, audio }),
     });
     if (!res.ok) throw new Error(`save settings failed: ${res.status}`);
     return res.json();

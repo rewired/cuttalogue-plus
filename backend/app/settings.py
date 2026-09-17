@@ -1,13 +1,13 @@
-# Application-level settings: provider connections used by describe.py/
-# expand.py (the "ai" provider, an OpenRouter-compatible chat API) and
-# comfy.py (the "comfy" provider, a ComfyUI instance on a RunPod Pod). Per
-# the product doc, this is scoped to the whole app, not a project - stored in
-# its own file next to (not inside) backend/data/projects/, and never echoed
-# back to the client or written into a project.json/export.
+# Application-level provider connections and audio-render quality. Per the
+# product doc, these are scoped to the whole app, not a project, and stored in
+# their own file next to (not inside) backend/data/projects/. Provider secrets
+# are never echoed back to the client or written into project.json/export.
 import json
 from pathlib import Path
 
 from fastapi import APIRouter, Body
+
+from . import media
 
 router = APIRouter()
 
@@ -29,14 +29,19 @@ DEFAULT_PROVIDERS = {
     },
 }
 
+DEFAULT_AUDIO = {
+    "renderQuality": media.DEFAULT_AUDIO_RENDER_PRESET,
+    "renderFormat": media.DEFAULT_AUDIO_RENDER_FORMAT,
+}
+
 
 def load_settings() -> dict:
     if not SETTINGS_FILE.exists():
-        return {"providers": {k: dict(v) for k, v in DEFAULT_PROVIDERS.items()}}
+        return {"providers": {k: dict(v) for k, v in DEFAULT_PROVIDERS.items()}, "audio": dict(DEFAULT_AUDIO)}
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"providers": {k: dict(v) for k, v in DEFAULT_PROVIDERS.items()}}
+        return {"providers": {k: dict(v) for k, v in DEFAULT_PROVIDERS.items()}, "audio": dict(DEFAULT_AUDIO)}
     # Pre-two-provider saves only have a flat "aiProvider" key - migrate it
     # into providers.ai on load rather than carrying a permanent compat shim.
     if "providers" not in data and "aiProvider" in data:
@@ -45,7 +50,12 @@ def load_settings() -> dict:
         key: {**default, **(data.get("providers", {}).get(key) or {})}
         for key, default in DEFAULT_PROVIDERS.items()
     }
-    return {"providers": providers}
+    incoming_audio = data.get("audio") or {}
+    audio = {
+        "renderQuality": media.normalize_audio_render_preset(incoming_audio.get("renderQuality")),
+        "renderFormat": media.normalize_audio_render_format(incoming_audio.get("renderFormat")),
+    }
+    return {"providers": providers, "audio": audio}
 
 
 def save_settings(data: dict) -> None:
@@ -56,6 +66,7 @@ def save_settings(data: dict) -> None:
 def _public_view(data: dict) -> dict:
     providers = data["providers"]
     return {
+        "audio": dict(data["audio"]),
         "providers": {
             "ai": {
                 "baseUrl": providers["ai"]["baseUrl"],
@@ -101,6 +112,12 @@ async def put_settings(body: dict = Body(default={})):
         comfy["mode"] = (incoming_comfy["mode"] or "").strip() or DEFAULT_PROVIDERS["comfy"]["mode"]
     if incoming_comfy.get("apiKey"):
         comfy["apiKey"] = incoming_comfy["apiKey"].strip()
+
+    incoming_audio = body.get("audio") or {}
+    if "renderQuality" in incoming_audio:
+        current["audio"]["renderQuality"] = media.normalize_audio_render_preset(incoming_audio["renderQuality"])
+    if "renderFormat" in incoming_audio:
+        current["audio"]["renderFormat"] = media.normalize_audio_render_format(incoming_audio["renderFormat"])
 
     save_settings(current)
     return _public_view(current)
