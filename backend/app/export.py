@@ -1,7 +1,8 @@
-# Whole-project export: per-shot folders, shot.json manifest, copied assets,
-# prompt/notes, optional per-shot rendered mix snippet, the full mix track
-# copied once to the export root, aggregate progress, and cancellation
-# (checked between shots and mid-encode via media.py's should_cancel).
+# Whole-project export: per-shot folders, shot-prefixed manifest/prompt/notes,
+# copied assets, optional per-shot rendered mix snippet, the full mix track
+# copied once to the export root, project summaries, aggregate progress, and
+# cancellation (checked between shots and mid-encode via media.py's
+# should_cancel).
 import asyncio
 import json
 import logging
@@ -50,8 +51,53 @@ def _shot_directory_name(shot: dict) -> str:
     return f"{base}_{slug}" if slug else base
 
 
-def _shot_audio_filename(shot: dict, kind: str, extension: str) -> str:
+def _shot_export_filename(shot: dict, kind: str, extension: str) -> str:
     return f"{_shot_directory_name(shot)}-{kind}{extension}"
+
+
+def _shot_audio_filename(shot: dict, kind: str, extension: str) -> str:
+    return _shot_export_filename(shot, kind, extension)
+
+
+def _markdown_cell(value: object) -> str:
+    return str(value or "").replace("\r", " ").replace("\n", " ").replace("|", "\\|").strip()
+
+
+def _format_seconds(value: float) -> str:
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def _project_markdown(data: dict) -> str:
+    project_name = _markdown_cell(data.get("name")) or "Project export"
+    video = data["video"]
+    shots = data.get("shots", [])
+    shots_end = max((float(shot["endSeconds"]) for shot in shots), default=0.0)
+    mix_duration = data.get("audio", {}).get("mix", {}).get("durationSeconds", 0)
+    mix_duration = float(mix_duration) if isinstance(mix_duration, (int, float)) else 0.0
+    total_length = max(shots_end, mix_duration)
+    bpm = data.get("tempo", {}).get("bpm")
+    bpm_label = _format_seconds(float(bpm)) if isinstance(bpm, (int, float)) else ""
+    lines = [
+        "# Project export",
+        "",
+        f"- **Name:** {project_name}",
+        f"- **Length total (s):** {_format_seconds(total_length)}",
+        f"- **BPM:** {bpm_label}",
+        "",
+        "| Shot name | Length (s) | startSeconds | endSeconds | Frames |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for shot in shots:
+        start = float(shot["startSeconds"])
+        end = float(shot["endSeconds"])
+        duration = end - start
+        shot_name = _markdown_cell(shot.get("name")) or f"Shot {shot['id']:03d}"
+        cut_frames = frames.frame_calc(duration, video)["cutFrames"]
+        lines.append(
+            f"| {shot_name} | {_format_seconds(duration)} | "
+            f"{_format_seconds(start)} | {_format_seconds(end)} | {cut_frames} |"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def _load_project(project_id: str) -> tuple[dict, Path]:
@@ -110,6 +156,7 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                 shutil.rmtree(export_dir)
             export_dir.mkdir(parents=True)
             (export_dir / "project.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+            (export_dir / "project.md").write_text(_project_markdown(data), encoding="utf-8")
 
             if mix_path is not None:
                 await jobs.emit(
@@ -139,6 +186,9 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                 mix_snippet_filename = _shot_audio_filename(
                     shot, "mix", audio_format_spec["extension"]
                 )
+                manifest_filename = _shot_export_filename(shot, "shot", ".json")
+                prompt_filename = _shot_export_filename(shot, "prompt", ".txt")
+                notes_filename = _shot_export_filename(shot, "notes", ".md")
                 current_shot_dir = shot_dir
                 shot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -255,9 +305,9 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                     },
                     "assets": asset_relative_paths,
                 }
-                (shot_dir / "shot.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-                (shot_dir / "prompt.txt").write_text(shot.get("prompt") or "", encoding="utf-8")
-                (shot_dir / "notes.md").write_text(shot.get("notes") or "", encoding="utf-8")
+                (shot_dir / manifest_filename).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+                (shot_dir / prompt_filename).write_text(shot.get("prompt") or "", encoding="utf-8")
+                (shot_dir / notes_filename).write_text(shot.get("notes") or "", encoding="utf-8")
                 current_shot_dir = None
 
                 await jobs.emit(
@@ -273,7 +323,7 @@ async def export_project(project_id: str, options: dict = Body(default={})):
                     },
                 )
 
-            job.result = {"exportPath": str(export_dir), "shotCount": shot_count}
+            job.result = {"exportPath": str(export_dir.resolve()), "shotCount": shot_count}
             await jobs.emit(
                 job,
                 {"status": "done", "phase": "complete", "message": "Export complete", "progressFraction": 1.0, "result": job.result},

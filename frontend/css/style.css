@@ -1731,6 +1731,16 @@ th { color: var(--text-dim); font-weight: 500; font-size: 12px; }
   margin-bottom: 4px;
 }
 #task-panel-message { margin: 6px 0 0; }
+.task-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.task-panel-actions[hidden] { display: none; }
+.task-panel-actions button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
 
 .toast {
   position: fixed;

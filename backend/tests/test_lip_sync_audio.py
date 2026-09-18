@@ -230,7 +230,9 @@ try:
         project_dir_path = test_data_dir / project_id
         project_dir_path.mkdir(parents=True, exist_ok=True)
         project_payload = {
-            "shots": [{"id": 1, "startSeconds": 0.0, "endSeconds": 10.0, "prompt": "", "assetIds": [], "assetRoles": {}}],
+            "name": "Audio export test",
+            "tempo": {"bpm": 120},
+            "shots": [{"id": 1, "name": "Opening close-up", "startSeconds": 0.0, "endSeconds": 10.0, "prompt": "", "assetIds": [], "assetRoles": {}}],
             "assets": [],
             "audio": {},  # no vocal track uploaded
             "video": {"fpsNumerator": 25, "fpsDenominator": 1, "frameRule": {"stride": 8, "offset": 1}},
@@ -274,9 +276,9 @@ try:
         }
         (project_dir_path / "project.json").write_text(json.dumps(project_payload), encoding="utf-8")
         export_status = asyncio.run(run_export_and_wait(project_id, {"includeMixSnippet": True}))
-        exported_shot_dir = project_dir_path / "export" / "shot-001"
-        exported_lip_sync = exported_shot_dir / "shot-001-lip_sync.wav"
-        exported_mix = exported_shot_dir / "shot-001-mix.wav"
+        exported_shot_dir = project_dir_path / "export" / "shot-001_opening-close-up"
+        exported_lip_sync = exported_shot_dir / "shot-001_opening-close-up-lip_sync.wav"
+        exported_mix = exported_shot_dir / "shot-001_opening-close-up-mix.wav"
         check(export_status == "done", f"Case H: real project export completes ({export_status})")
         exported_streams = [
             ffprobe_audio_stream(path) for path in (exported_lip_sync, exported_mix) if path.is_file()
@@ -288,12 +290,27 @@ try:
             and all(int(stream.get("bits_per_sample", 0)) == 24 for stream in exported_streams),
             "Case H: Setup settings produce real 44.1 kHz/24-bit PCM shot-named lip-sync and mix WAVs",
         )
-        exported_manifest = json.loads((exported_shot_dir / "shot.json").read_text(encoding="utf-8"))
+        exported_manifest = json.loads(
+            (exported_shot_dir / "shot-001_opening-close-up-shot.json").read_text(encoding="utf-8")
+        )
         check(
             exported_manifest["audio"]["format"] == "wav-24"
-            and exported_manifest["audio"]["lipSyncFile"] == "shot-001-lip_sync.wav"
-            and exported_manifest["audio"]["mixFile"] == "shot-001-mix.wav",
+            and exported_manifest["audio"]["lipSyncFile"] == "shot-001_opening-close-up-lip_sync.wav"
+            and exported_manifest["audio"]["mixFile"] == "shot-001_opening-close-up-mix.wav",
             "Case H: shot manifest identifies the selected format and generated filenames",
+        )
+        check(
+            (exported_shot_dir / "shot-001_opening-close-up-prompt.txt").is_file()
+            and (exported_shot_dir / "shot-001_opening-close-up-notes.md").is_file(),
+            "Case H: prompt and notes use the shot-prefixed export schema",
+        )
+        exported_project_markdown = (project_dir_path / "export" / "project.md").read_text(encoding="utf-8")
+        check(
+            "- **Name:** Audio export test" in exported_project_markdown
+            and "- **Length total (s):** 10" in exported_project_markdown
+            and "- **BPM:** 120" in exported_project_markdown
+            and "| Opening close-up | 10 | 0 | 10 | 250 |" in exported_project_markdown,
+            "Case H: project.md summarizes project metadata and shot timing",
         )
     finally:
         projects_module.DATA_DIR = original_data_dir

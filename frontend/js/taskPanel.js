@@ -8,6 +8,7 @@
 
   const el = {};
   let activeJobId = null;
+  let exportPath = '';
 
   function cacheElements() {
     el.includeMix = document.getElementById('export-include-mix');
@@ -18,6 +19,8 @@
     el.fill = document.getElementById('task-panel-progress-fill');
     el.message = document.getElementById('task-panel-message');
     el.cancelBtn = document.getElementById('task-panel-cancel');
+    el.actions = document.getElementById('task-panel-actions');
+    el.copyPathBtn = document.getElementById('task-panel-copy-path');
   }
 
   function showPanel(title) {
@@ -26,8 +29,11 @@
     el.shotLabel.textContent = '';
     el.fill.style.width = '0%';
     el.message.textContent = '';
+    el.actions.hidden = true;
+    el.copyPathBtn.title = '';
     el.cancelBtn.disabled = false;
     el.cancelBtn.textContent = 'Cancel';
+    exportPath = '';
   }
 
   function updateProgress(event) {
@@ -43,11 +49,28 @@
     }, delayMs);
   }
 
+  async function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('clipboard unavailable');
+  }
+
   async function runExport() {
     const projectId = MSE.project.getProjectId();
     if (!projectId) {
-      el.message.textContent = 'Backend unavailable - cannot export.';
       showPanel('Export project');
+      el.message.textContent = 'Backend unavailable - cannot export.';
       el.cancelBtn.disabled = true;
       hidePanelAfterDelay(4000);
       return;
@@ -62,14 +85,17 @@
       activeJobId = jobId;
       const result = await MSE.api.watchJob(jobId, updateProgress);
       activeJobId = null;
-      el.cancelBtn.disabled = true;
+      el.cancelBtn.disabled = false;
+      el.cancelBtn.textContent = 'Close';
       if (result.status === 'cancelled') {
         el.message.textContent = 'Cancelled.';
       } else {
         el.fill.style.width = '100%';
         el.message.textContent = `Done - ${result.result.shotCount} shot(s) exported.`;
+        exportPath = result.result.exportPath || '';
+        el.actions.hidden = !exportPath;
+        el.copyPathBtn.title = exportPath;
       }
-      hidePanelAfterDelay(4000);
     } catch (err) {
       activeJobId = null;
       console.error(err);
@@ -89,7 +115,10 @@
     });
 
     el.cancelBtn.addEventListener('click', async () => {
-      if (!activeJobId) return;
+      if (!activeJobId) {
+        el.panel.hidden = true;
+        return;
+      }
       el.cancelBtn.disabled = true;
       el.cancelBtn.textContent = 'Cancelling...';
       el.message.textContent = 'Cancelling...';
@@ -97,6 +126,17 @@
         await MSE.api.cancelJob(activeJobId);
       } catch (err) {
         console.error(err);
+      }
+    });
+
+    el.copyPathBtn.addEventListener('click', async () => {
+      if (!exportPath) return;
+      try {
+        await copyToClipboard(exportPath);
+        el.message.textContent = 'Export path copied to clipboard.';
+      } catch (err) {
+        console.error(err);
+        el.message.textContent = 'Could not copy the export path.';
       }
     });
 

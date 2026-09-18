@@ -690,11 +690,12 @@ Example:
 ```text
 export/
 ├── project.json
+├── project.md
 │
 ├── shot-001_opening-closeup/
-│   ├── shot.json
-│   ├── prompt.txt
-│   ├── notes.md
+│   ├── shot-001_opening-closeup-shot.json
+│   ├── shot-001_opening-closeup-prompt.txt
+│   ├── shot-001_opening-closeup-notes.md
 │   ├── shot-001_opening-closeup-lip_sync.flac
 │   └── assets/
 │       ├── character-front.png
@@ -744,7 +745,7 @@ For every shot:
 2. generate `shot-XXX_<slug>-lip_sync.flac`,
 3. optionally generate `shot-XXX_<slug>-mix.flac`,
 4. copy assigned assets unchanged,
-5. write `shot.json`,
+5. write `shot-XXX_<slug>-shot.json`,
 6. write prompt and notes.
 
 No EDL, Resolve marker export, ComfyUI workflow generation, or script generator is required initially.

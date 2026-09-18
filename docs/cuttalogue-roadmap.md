@@ -72,7 +72,7 @@ For one selected shot (not the whole project yet): generate `shot-XXX_<slug>-lip
 
 ### 4b — full export package
 
-Extend 4a to the whole project: per-shot folders, `shot.json` manifest, copied assets, `prompt.txt`/`notes.md`, optional `shot-XXX_<slug>-mix.flac` when enabled, aggregate progress ("Shot 12 of 37") in the shared task panel, cancel support.
+Extend 4a to the whole project: per-shot folders, shot-prefixed `-shot.json`, `-prompt.txt`, and `-notes.md` files, copied assets, a compact root-level `project.md`, optional `shot-XXX_<slug>-mix.flac` when enabled, aggregate progress ("Shot 12 of 37") in the shared task panel, cancel support.
 
 **Acceptance (4b):** exporting a project with several shots and mixed assets produces the folder structure from the product doc, matches the manifest schema, and can be cancelled mid-run without leaving the project state corrupted.
 
